@@ -12,6 +12,7 @@ from .browser_automation import IP_CHECK_URL
 from .oai_iprocket_chain_bridge import ensure_background_server
 from .oai_payment_extractor.transport import chain_bridge_proxy_url
 from .probe_store import ProxyLease
+from .windows_system_proxy import roxy_system_proxy_chain_available
 
 
 MANAGED_BROWSER_PREFIX = "AutoRegister Probe "
@@ -117,9 +118,13 @@ class RoxyClient:
         timeout_seconds: float = 15,
         transport: httpx.AsyncBaseTransport | None = None,
         bridge_starter: Callable[[], bool] | None = None,
+        system_proxy_chain_detector: Callable[[], bool] | None = None,
     ) -> None:
         self.base_url = f"http://127.0.0.1:{port}"
         self._bridge_starter = bridge_starter or ensure_background_server
+        self._system_proxy_chain_detector = (
+            system_proxy_chain_detector or roxy_system_proxy_chain_available
+        )
         self._http = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
@@ -294,7 +299,11 @@ class RoxyClient:
         probe_id: str,
         proxy: ProxyLease,
     ) -> str:
-        if proxy.username and _requires_chain_bridge(proxy.host):
+        if (
+            proxy.username
+            and _requires_chain_bridge(proxy.host)
+            and not self._system_proxy_chain_detector()
+        ):
             self._bridge_starter()
             bridge_url = urlsplit(
                 chain_bridge_proxy_url(

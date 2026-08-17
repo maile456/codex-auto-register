@@ -1,9 +1,16 @@
+param(
+    [switch] $SkipMailCom
+)
+
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $App = Join-Path $Root 'app'
 $Python = Join-Path $Root 'register_env\Scripts\python.exe'
 $settingsPath = Join-Path $Root 'data\settings.json'
+$RuntimeLogs = Join-Path $Root 'data\runtime'
+$MailComStart = Join-Path $Root 'mailcom-manager\start.ps1'
+New-Item -ItemType Directory -Force -Path $RuntimeLogs | Out-Null
 $Roxy = $env:ROXY_BROWSER_PATH
 if (-not $Roxy -and (Test-Path -LiteralPath $settingsPath)) {
     try {
@@ -59,7 +66,19 @@ Start-Component 'Backend' {
     if (Test-LocalPort 8000) {
         Write-Host '  already running' -ForegroundColor Green
     } else {
-        Start-Process -FilePath $Python -ArgumentList '-m', 'backend' -WorkingDirectory $App -WindowStyle Hidden
+        $previousLogEnqueue = $env:OPLL_LOG_ENQUEUE
+        $env:OPLL_LOG_ENQUEUE = 'false'
+        try {
+            Start-Process -FilePath $Python -ArgumentList '-m', 'backend' -WorkingDirectory $App -WindowStyle Hidden `
+                -RedirectStandardOutput (Join-Path $RuntimeLogs 'autoregister-backend.out.log') `
+                -RedirectStandardError (Join-Path $RuntimeLogs 'autoregister-backend.err.log')
+        } finally {
+            if ($null -eq $previousLogEnqueue) {
+                Remove-Item Env:\OPLL_LOG_ENQUEUE -ErrorAction SilentlyContinue
+            } else {
+                $env:OPLL_LOG_ENQUEUE = $previousLogEnqueue
+            }
+        }
         Write-Host '  started' -ForegroundColor Green
     }
 }
@@ -68,8 +87,24 @@ Start-Component 'Frontend' {
     if (Test-LocalPort 5173) {
         Write-Host '  already running' -ForegroundColor Green
     } else {
-        Start-Process -FilePath 'npm.cmd' -ArgumentList 'run', 'dev', '--', '--host', '127.0.0.1' -WorkingDirectory $App -WindowStyle Hidden
+        Start-Process -FilePath 'npm.cmd' `
+            -ArgumentList 'run', 'dev', '--', '--configLoader', 'native', '--host', '127.0.0.1' `
+            -WorkingDirectory $App -WindowStyle Hidden `
+            -RedirectStandardOutput (Join-Path $RuntimeLogs 'autoregister-frontend.out.log') `
+            -RedirectStandardError (Join-Path $RuntimeLogs 'autoregister-frontend.err.log')
         Write-Host '  started' -ForegroundColor Green
+    }
+}
+
+if (-not $SkipMailCom) {
+    Start-Component 'MailCom' {
+        if (Test-LocalPort 3211) {
+            Write-Host '  already running' -ForegroundColor Green
+        } elseif (Test-Path -LiteralPath $MailComStart) {
+            & $MailComStart -NoBrowser
+        } else {
+            Write-Host '  manager is not installed; non-MailCom mailboxes remain available' -ForegroundColor Yellow
+        }
     }
 }
 
@@ -80,10 +115,29 @@ Write-Host '  Page: http://127.0.0.1:5173/launch'
 Write-Host '  Backend: http://127.0.0.1:8000'
 Write-Host '  Roxy API: http://127.0.0.1:50000 (enable it in Roxy first)'
 Write-Host '  Proxy bridge: starts on demand at http://127.0.0.1:18796'
+if (-not $SkipMailCom) {
+    Write-Host '  MailCom: http://127.0.0.1:3211'
+}
 
 try {
     $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 5
     Write-Host "  Backend status: $($health.status)" -ForegroundColor Green
 } catch {
     Write-Host '  Backend is still starting; refresh in a few seconds.' -ForegroundColor Yellow
+}
+
+try {
+    $null = Invoke-WebRequest -Uri 'http://127.0.0.1:5173/launch' -UseBasicParsing -TimeoutSec 5
+    Write-Host '  Frontend status: ready' -ForegroundColor Green
+} catch {
+    Write-Host "  Frontend is still starting; check $RuntimeLogs\autoregister-frontend.err.log" -ForegroundColor Yellow
+}
+
+if (-not $SkipMailCom) {
+    try {
+        $mailHealth = Invoke-RestMethod -Uri 'http://127.0.0.1:3211/api/health' -TimeoutSec 5
+        Write-Host "  MailCom status: $($mailHealth.status)" -ForegroundColor Green
+    } catch {
+        Write-Host '  MailCom is still starting; registration can use other mailbox sources.' -ForegroundColor Yellow
+    }
 }

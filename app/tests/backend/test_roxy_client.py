@@ -255,6 +255,18 @@ def test_roxy_create_routes_vendor_proxy_through_local_bridge() -> None:
         if request.url.path == "/browser/create":
             create_payload.update(json.loads(request.content.decode("utf-8")))
             return httpx.Response(200, json={"code": 0, "data": {"dirId": "dir-bridge"}})
+        if request.url.path == "/browser/open":
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "ws": "ws://127.0.0.1:9222/devtools/browser/bridge",
+                        "http": "127.0.0.1:9222",
+                        "pid": 42,
+                    },
+                },
+            )
         return httpx.Response(200, json={"code": 0, "data": {}})
 
     async def scenario() -> None:
@@ -263,8 +275,9 @@ def test_roxy_create_routes_vendor_proxy_through_local_bridge() -> None:
             SecretStr(TEST_KEY),
             transport=httpx.MockTransport(handler),
             bridge_starter=lambda: bridge_starts.append(True) or True,
+            system_proxy_chain_detector=lambda: False,
         ) as client:
-            await client.create_browser(
+            dir_id = await client.create_browser(
                 7,
                 "probe-bridge",
                 ProxyLease(
@@ -276,6 +289,8 @@ def test_roxy_create_routes_vendor_proxy_through_local_bridge() -> None:
                     scheme="http",
                 ),
             )
+            await client.open_browser(7, dir_id, headless=False)
+            await client.delete_browser(7, dir_id)
 
     asyncio.run(scenario())
     assert bridge_starts == [True]
@@ -293,6 +308,47 @@ def test_roxy_create_routes_vendor_proxy_through_local_bridge() -> None:
     assert base64.urlsafe_b64decode(encoded).decode("utf-8") == (
         "http|gateway.ipipbright.net|1000|vendor-user"
     )
+
+
+def test_roxy_create_uses_vendor_proxy_directly_when_system_chain_exists() -> None:
+    create_payload: dict[str, object] = {}
+    bridge_starts: list[bool] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/browser/create":
+            create_payload.update(json.loads(request.content.decode("utf-8")))
+            return httpx.Response(200, json={"code": 0, "data": {"dirId": "direct"}})
+        return httpx.Response(200, json={"code": 0, "data": {}})
+
+    async def scenario() -> None:
+        async with RoxyClient(
+            50000,
+            SecretStr(TEST_KEY),
+            transport=httpx.MockTransport(handler),
+            bridge_starter=lambda: bridge_starts.append(True) or True,
+            system_proxy_chain_detector=lambda: True,
+        ) as client:
+            await client.create_browser(
+                7,
+                "probe-direct-chain",
+                ProxyLease(
+                    id="proxy-direct-chain",
+                    host="gateway.ipipbright.net",
+                    port=1000,
+                    username="vendor-user",
+                    password=TEST_PROXY_PASSWORD,
+                    scheme="http",
+                ),
+            )
+
+    asyncio.run(scenario())
+    assert bridge_starts == []
+    proxy_info = create_payload["proxyInfo"]
+    assert isinstance(proxy_info, dict)
+    assert proxy_info["host"] == "gateway.ipipbright.net"
+    assert proxy_info["port"] == "1000"
+    assert proxy_info["proxyUserName"] == "vendor-user"
+    assert proxy_info["proxyPassword"] == TEST_PROXY_PASSWORD
 
 
 def test_roxy_errors_are_structured_without_echoing_response_or_credentials() -> None:

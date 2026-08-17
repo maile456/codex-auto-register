@@ -203,6 +203,13 @@ class Handler(socketserver.BaseRequestHandler):
             except Exception:
                 dynamic_credential = None
             break
+        if dynamic_credential is None:
+            self.request.sendall(
+                b'HTTP/1.1 407 Proxy Authentication Required\r\n'
+                b'Proxy-Authenticate: Basic realm="autoregister-bridge"\r\n'
+                b'Connection: close\r\n\r\n'
+            )
+            return
         upstream = open_chain(host.strip("[]"), int(port_text), dynamic_credential)
         try:
             self.request.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")

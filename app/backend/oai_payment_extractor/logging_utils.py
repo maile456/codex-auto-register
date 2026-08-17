@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import sys
 import threading
@@ -30,7 +31,8 @@ def configure_logging(
             {
                 "sink": sys.stderr,
                 "level": level.upper(),
-                "enqueue": True,
+                "enqueue": os.getenv("OPLL_LOG_ENQUEUE", "true").lower()
+                in {"1", "true", "yes", "on"},
                 "serialize": serialize,
                 "format": "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
                 "<level>{level: <8}</level> | {extra[component]} | "
@@ -42,7 +44,8 @@ def configure_logging(
                 {
                     "sink": log_file,
                     "level": level.upper(),
-                    "enqueue": True,
+                    "enqueue": os.getenv("OPLL_LOG_ENQUEUE", "true").lower()
+                    in {"1", "true", "yes", "on"},
                     "serialize": serialize,
                     "rotation": "10 MB",
                     "retention": "14 days",
