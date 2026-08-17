@@ -184,15 +184,20 @@ def parse_accounts_check(
     )
 
 
-def plan_request_headers(access_token: str) -> dict[str, str]:
+def plan_request_headers(
+    access_token: str,
+    *,
+    language: str = "zh-CN",
+    device_id: str | None = None,
+) -> dict[str, str]:
     token = normalize_access_token(access_token)
     if not token:
         raise PlanCheckError("access_token_missing")
     return {
         "accept": "application/json",
         "authorization": f"Bearer {token}",
-        "oai-device-id": str(uuid4()),
-        "oai-language": "zh-CN",
+        "oai-device-id": str(device_id or uuid4()),
+        "oai-language": str(language or "zh-CN"),
         "referer": "https://chatgpt.com/",
         "x-openai-target-path": ACCOUNTS_CHECK_PATH,
         "x-openai-target-route": ACCOUNTS_CHECK_PATH,

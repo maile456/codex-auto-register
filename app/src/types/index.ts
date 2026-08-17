@@ -126,6 +126,8 @@ export interface ExecutionSettings {
   roxyApiKey: string
   roxyApiPort: number
   headless: boolean
+  requireRegistrationPassword: boolean
+  enableRegistrationTotp: boolean
   proxyRetryCount: number
   concurrency: number
   taskTimeoutSeconds: number
@@ -137,6 +139,8 @@ export interface ExecutionSettingsInput {
   roxyApiKey: string
   roxyApiPort: number
   headless: boolean
+  requireRegistrationPassword: boolean
+  enableRegistrationTotp: boolean
   proxyRetryCount: number
   concurrency: number
   taskTimeoutSeconds: number

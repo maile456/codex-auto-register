@@ -98,6 +98,21 @@ PASSWORD_REJECTION_PATTERN = re.compile(
     r"(?:şifre|parola).{0,80}(?:gerekli|geçersiz|çok\s+kısa|içermeli)",
     re.IGNORECASE,
 )
+PASSWORD_ROUTE_SELECTOR = (
+    "xpath=//*[self::button or self::a or @role='button' or @role='link']["
+    "contains(translate(normalize-space(.), "
+    "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'password') "
+    "or contains(normalize-space(.), 'パスワード') "
+    "or contains(normalize-space(.), '密码') "
+    "or contains(normalize-space(.), '密碼') "
+    "or contains(normalize-space(.), '비밀번호') "
+    "or contains(translate(normalize-space(.), 'Şİ', 'şi'), 'şifre') "
+    "or contains(translate(normalize-space(.), "
+    "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'parola') "
+    "or contains(translate(normalize-space(.), "
+    "'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'passwort')"
+    "]"
+)
 PROFILE_SUBMIT_PATTERN = re.compile(
     r"^\s*(?:finish\s+creating\s+account|continue|続行|"
     r"アカウント(?:の)?作成(?:を完了)?|登録(?:を完了)?|完了|"
@@ -720,6 +735,7 @@ class CdpBrowserAutomation:
         login_challenge_wait_seconds: float = LOGIN_CHALLENGE_WAIT_SECONDS,
         challenge_poll_interval_seconds: float = CHALLENGE_POLL_INTERVAL_SECONDS,
         email_form_stability_seconds: float = EMAIL_FORM_STABILITY_SECONDS,
+        signup_screen_hint: str = "login_or_signup",
         random_uniform: Callable[[float, float], float] | None = None,
         random_choice: Callable[[tuple[str, ...]], str] | None = None,
         random_randint: Callable[[int, int], int] | None = None,
@@ -762,6 +778,9 @@ class CdpBrowserAutomation:
             raise ValueError("登录挑战等待范围无效")
         if email_form_stability_seconds <= 0:
             raise ValueError("邮箱表单稳定窗口必须大于零")
+        normalized_screen_hint = str(signup_screen_hint).strip().casefold()
+        if normalized_screen_hint not in {"login_or_signup", "signup"}:
+            raise ValueError("注册 screen_hint 配置无效")
         self.ws_endpoint = ws_endpoint
         self.screenshot_path = Path(screenshot_path)
         self.playwright_factory = playwright_factory
@@ -794,6 +813,7 @@ class CdpBrowserAutomation:
         self.login_challenge_wait_seconds = login_challenge_wait_seconds
         self.challenge_poll_interval_seconds = challenge_poll_interval_seconds
         self.email_form_stability_seconds = email_form_stability_seconds
+        self.signup_screen_hint = normalized_screen_hint
         self.random_uniform = random_uniform or random.uniform
         self.random_choice = random_choice or random.choice
         self.random_randint = random_randint or random.randint
@@ -1544,6 +1564,277 @@ class CdpBrowserAutomation:
             await self.delay_sleep(delay)
             scheduled_wait += delay
 
+    async def _open_registration_page(self, page: Any, email: str) -> None:
+        if self.signup_screen_hint != "signup":
+            started = monotonic()
+            try:
+                await page.goto(
+                    CHATGPT_LOGIN_URL,
+                    wait_until="domcontentloaded",
+                    timeout=self.login_navigation_timeout_ms,
+                )
+            except Exception as exc:
+                raise _navigation_failure(
+                    exc,
+                    stage="login_navigation",
+                    failed_code="login_navigation_failed",
+                    timeout_code="login_navigation_timeout",
+                    failed_message="ChatGPT 登录页导航失败",
+                    timeout_message="ChatGPT 登录页导航超时",
+                    started=started,
+                    timeout_ms=self.login_navigation_timeout_ms,
+                ) from None
+            return
+
+        started = monotonic()
+        try:
+            await page.goto(
+                CHATGPT_HOME_URL,
+                wait_until="domcontentloaded",
+                timeout=self.login_navigation_timeout_ms,
+            )
+        except Exception as exc:
+            raise _navigation_failure(
+                exc,
+                stage="signup_bootstrap_navigation",
+                failed_code="signup_bootstrap_navigation_failed",
+                timeout_code="signup_bootstrap_navigation_timeout",
+                failed_message="强制密码注册初始化页面导航失败",
+                timeout_message="强制密码注册初始化页面导航超时",
+                started=started,
+                timeout_ms=self.login_navigation_timeout_ms,
+            ) from None
+
+        bootstrap_started = monotonic()
+        try:
+            bootstrap = await page.evaluate(
+                """
+                async ({ email }) => {
+                  const csrfResponse = await fetch('/api/auth/csrf', {
+                    method: 'GET',
+                    credentials: 'include',
+                    headers: {accept: 'application/json'},
+                  });
+                  const csrfText = await csrfResponse.text().catch(() => '');
+                  let csrf = {};
+                  try { csrf = csrfText ? JSON.parse(csrfText) : {}; } catch (_) {}
+                  const csrfToken = String(csrf.csrfToken || '');
+                  if (!csrfResponse.ok || !csrfToken) {
+                    return {ok:false, stage:'csrf', status:csrfResponse.status || 0};
+                  }
+                  const deviceCookie = document.cookie
+                    .split(';')
+                    .map(value => value.trim())
+                    .find(value => value.startsWith('oai-did='));
+                  const deviceId = deviceCookie
+                    ? decodeURIComponent(deviceCookie.slice('oai-did='.length))
+                    : crypto.randomUUID();
+                  const query = new URLSearchParams({
+                    prompt: 'login',
+                    'ext-oai-did': deviceId,
+                    auth_session_logging_id: crypto.randomUUID(),
+                    'ext-passkey-client-capabilities': '0111',
+                    screen_hint: 'signup',
+                    login_hint: email,
+                  });
+                  const body = new URLSearchParams({
+                    callbackUrl: 'https://chatgpt.com/',
+                    csrfToken,
+                    json: 'true',
+                  });
+                  const signinResponse = await fetch(
+                    `/api/auth/signin/openai?${query.toString()}`,
+                    {
+                      method: 'POST',
+                      credentials: 'include',
+                      redirect: 'follow',
+                      headers: {
+                        accept: 'application/json',
+                        'content-type': 'application/x-www-form-urlencoded',
+                      },
+                      body: body.toString(),
+                    },
+                  );
+                  const signinText = await signinResponse.text().catch(() => '');
+                  let payload = {};
+                  try { payload = signinText ? JSON.parse(signinText) : {}; } catch (_) {}
+                  const url = String(payload.url || '');
+                  return {
+                    ok: signinResponse.ok && Boolean(url),
+                    stage: 'signin',
+                    status: signinResponse.status || 0,
+                    url,
+                  };
+                }
+                """,
+                {"email": email},
+            )
+        except Exception as exc:
+            raise _stage_failure(
+                exc,
+                stage="signup_bootstrap",
+                code="signup_bootstrap_failed",
+                message="强制密码注册初始化失败",
+                started=bootstrap_started,
+                timeout_ms=self.login_navigation_timeout_ms,
+            ) from None
+
+        auth_url = str(bootstrap.get("url") or "") if isinstance(bootstrap, dict) else ""
+        parsed_auth_url = urlsplit(auth_url)
+        if (
+            not isinstance(bootstrap, dict)
+            or not bootstrap.get("ok")
+            or parsed_auth_url.scheme != "https"
+            or (parsed_auth_url.hostname or "").casefold()
+            not in {"auth.openai.com", "chatgpt.com"}
+        ):
+            raise _stage_failure(
+                RuntimeError("signup bootstrap response invalid"),
+                stage="signup_bootstrap",
+                code="signup_bootstrap_response_invalid",
+                message="强制密码注册初始化响应无效",
+                started=bootstrap_started,
+                timeout_ms=self.login_navigation_timeout_ms,
+            )
+
+        navigation_started = monotonic()
+        try:
+            await page.goto(
+                auth_url,
+                wait_until="domcontentloaded",
+                timeout=self.login_navigation_timeout_ms,
+            )
+        except Exception as exc:
+            raise _navigation_failure(
+                exc,
+                stage="signup_navigation",
+                failed_code="signup_navigation_failed",
+                timeout_code="signup_navigation_timeout",
+                failed_message="强制密码注册页导航失败",
+                timeout_message="强制密码注册页导航超时",
+                started=navigation_started,
+                timeout_ms=self.login_navigation_timeout_ms,
+            ) from None
+
+    async def _resolve_forced_signup_password_route(self, page: Any) -> str | None:
+        if self.signup_screen_hint != "signup":
+            return None
+
+        deadline = monotonic() + (self.next_step_timeout_ms / 1000)
+        route_clicked = False
+        while monotonic() < deadline:
+            remaining_ms = max(1, int((deadline - monotonic()) * 1000))
+            current_url = sanitize_url(str(getattr(page, "url", "")))
+            current_path = urlsplit(current_url).path.rstrip("/").casefold()
+            new_password_input = page.locator(
+                'input[autocomplete="new-password"], input[name="new-password"]'
+            )
+            any_password_input = page.locator('input[type="password"]')
+            verification_input = page.locator(
+                'input[autocomplete="one-time-code"], '
+                'input[name="code"], input[name="otp"]'
+            )
+
+            try:
+                new_password_visible = await self._is_visible(new_password_input)
+                any_password_visible = await self._is_visible(any_password_input)
+            except Exception:
+                new_password_visible = False
+                any_password_visible = False
+
+            if new_password_visible and (
+                current_path.endswith("/create-account/password")
+                or "create-account" in current_path
+            ):
+                await self._safe_screenshot(page)
+                return "password"
+
+            if any_password_visible:
+                await self._safe_screenshot(page)
+                raise PasswordStepError(
+                    "existing_account_password_required",
+                    "该邮箱进入了已有账号密码登录页，未创建新密码",
+                )
+
+            try:
+                verification_visible = await self._is_visible(verification_input)
+            except Exception:
+                verification_visible = False
+            verification_url = current_path.endswith("/email-verification")
+            if verification_visible or verification_url:
+                if route_clicked:
+                    await self.delay_sleep(self.poll_interval_seconds)
+                    continue
+                password_route = page.locator(PASSWORD_ROUTE_SELECTOR)
+                try:
+                    route_visible = await self._is_visible(password_route)
+                except Exception:
+                    route_visible = False
+                if route_visible:
+                    try:
+                        await password_route.first.click(
+                            timeout=min(self.email_action_timeout_ms, remaining_ms)
+                        )
+                    except Exception:
+                        route_visible = False
+                if not route_visible:
+                    try:
+                        route_visible = bool(
+                            await page.evaluate(
+                                """
+                                () => {
+                                  const passwordRouteCandidates = [...document.querySelectorAll(
+                                    'button,a,[role="button"],[role="link"]'
+                                  )];
+                                  const visible = element => !!element &&
+                                    !!(element.offsetWidth || element.offsetHeight || element.getClientRects().length) &&
+                                    getComputedStyle(element).visibility !== 'hidden' &&
+                                    getComputedStyle(element).display !== 'none';
+                                  const enabled = element => !element.disabled &&
+                                    String(element.getAttribute('aria-disabled') || '').toLowerCase() !== 'true';
+                                  const target = passwordRouteCandidates.find(element => {
+                                    if (!visible(element) || !enabled(element)) return false;
+                                    const text = [
+                                      element.innerText,
+                                      element.textContent,
+                                      element.getAttribute('aria-label'),
+                                      element.getAttribute('title'),
+                                    ].filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim().toLowerCase();
+                                    return /continue with password|パスワードで続行|使用密码继续|使用密碼繼續|비밀번호로 계속|şifre ile devam|parola ile devam|mit passwort fortfahren/i.test(text);
+                                  });
+                                  if (!target) return false;
+                                  target.scrollIntoView({block: 'center'});
+                                  target.click();
+                                  return true;
+                                }
+                                """
+                            )
+                        )
+                    except Exception:
+                        route_visible = False
+                if not route_visible:
+                    await self._safe_screenshot(page)
+                    return "verification"
+                route_clicked = True
+                await self.delay_sleep(self.poll_interval_seconds)
+                continue
+
+            email_input = self._email_input_locator(page)
+            try:
+                if await self._is_visible(email_input):
+                    return None
+            except Exception:
+                pass
+            await self.delay_sleep(self.poll_interval_seconds)
+
+        if route_clicked:
+            await self._safe_screenshot(page)
+            raise PasswordStepError(
+                "registration_password_route_timeout",
+                "点击密码注册入口后未进入创建密码页",
+            )
+        return None
+
     async def submit_email_and_continue(self, email: str) -> AutomationResult:
         page = await self._page()
         started = monotonic()
@@ -1594,24 +1885,15 @@ class CdpBrowserAutomation:
                 timeout_ms=None,
             ) from None
 
-        stage_started = monotonic()
-        try:
-            await page.goto(
-                CHATGPT_LOGIN_URL,
-                wait_until="domcontentloaded",
-                timeout=self.login_navigation_timeout_ms,
+        signup_bootstrap_started_at_utc: datetime | None = None
+        if self.signup_screen_hint == "signup":
+            signup_bootstrap_started_at_utc = self.utc_now()
+            if signup_bootstrap_started_at_utc.tzinfo is None:
+                raise ValueError("强制密码注册时间必须包含时区")
+            signup_bootstrap_started_at_utc = (
+                signup_bootstrap_started_at_utc.astimezone(timezone.utc)
             )
-        except Exception as exc:
-            raise _navigation_failure(
-                exc,
-                stage="login_navigation",
-                failed_code="login_navigation_failed",
-                timeout_code="login_navigation_timeout",
-                failed_message="ChatGPT 登录页导航失败",
-                timeout_message="ChatGPT 登录页导航超时",
-                started=stage_started,
-                timeout_ms=self.login_navigation_timeout_ms,
-            ) from None
+        await self._open_registration_page(page, email)
 
         stage_started = monotonic()
         try:
@@ -1705,6 +1987,18 @@ class CdpBrowserAutomation:
                 ),
                 egress_ip=egress_ip,
             )
+
+        forced_signup_next_step = await self._resolve_forced_signup_password_route(
+            page
+        )
+        if forced_signup_next_step is not None:
+            if signup_bootstrap_started_at_utc is None:
+                raise RuntimeError("强制密码注册时间缺失")
+            submitted_at_utc = signup_bootstrap_started_at_utc
+            email_continue_recovery_state = "signup_bootstrap"
+            email_continue_dispatch_observed = True
+            email_continue_attempt_states.append("signup_bootstrap_next_step")
+            return build_result(forced_signup_next_step)
 
         for fill_attempt in range(1, 3):
             generated_pre_fill_delay = float(
@@ -3116,11 +3410,53 @@ class CdpBrowserAutomation:
         if not await self._wait_for_confirmed_chatgpt_home(page):
             raise PlanCheckError("plan_home_not_confirmed")
 
+        try:
+            browser_context = await page.evaluate(
+                """
+                () => {
+                  const deviceCookie = document.cookie
+                    .split(';')
+                    .map(value => value.trim())
+                    .find(value => value.startsWith('oai-did='));
+                  return {
+                    language: String(navigator.language || 'en-US'),
+                    timezoneOffset: String(new Date().getTimezoneOffset()),
+                    deviceId: deviceCookie
+                      ? decodeURIComponent(deviceCookie.slice('oai-did='.length))
+                      : '',
+                  };
+                }
+                """
+            )
+        except Exception:
+            browser_context = {}
+        if not isinstance(browser_context, dict):
+            browser_context = {}
+        language = str(browser_context.get("language") or "en-US").strip()[:32]
+        timezone_offset = str(
+            browser_context.get("timezoneOffset") or "0"
+        ).strip()
+        try:
+            timezone_offset_value = int(timezone_offset)
+        except ValueError:
+            timezone_offset_value = 0
+        timezone_offset = str(min(840, max(-840, timezone_offset_value)))
+        device_id = str(browser_context.get("deviceId") or "").strip()[:128]
+        plan_url = (
+            f"{ACCOUNTS_CHECK_URL}?timezone_offset_min={timezone_offset}"
+        )
+
         route_pattern = f"**{ACCOUNTS_CHECK_PATH}*"
 
         async def authorize_route(route: Any) -> None:
             headers = dict(getattr(route.request, "headers", {}) or {})
-            headers.update(plan_request_headers(access_token))
+            headers.update(
+                plan_request_headers(
+                    access_token,
+                    language=language,
+                    device_id=device_id or None,
+                )
+            )
             await route.continue_(headers=headers)
 
         response = None
@@ -3137,14 +3473,15 @@ class CdpBrowserAutomation:
             if error is None:
                 try:
                     response = await page.goto(
-                        CHATGPT_PLAN_URL,
+                        plan_url,
                         wait_until="domcontentloaded",
                         timeout=self.session_navigation_timeout_ms,
                     )
                 except Exception:
                     error = PlanCheckError("plan_navigation_failed", retryable=True)
             if error is None and not self._is_exact_chatgpt_plan_url(
-                str(getattr(page, "url", ""))
+                str(getattr(page, "url", "")),
+                timezone_offset=timezone_offset,
             ):
                 error = PlanCheckError("plan_response_untrusted")
             if error is None:
@@ -3686,16 +4023,16 @@ class CdpBrowserAutomation:
                 "添加密码重认证页面加载失败",
             ) from None
 
-        async def submit_visible_code(code: str) -> None:
+        async def submit_visible_code(code: str) -> bool:
             code_input = page.locator(
                 'input[autocomplete="one-time-code"], input[name="code"], '
                 'input[name="otp"], input[inputmode="numeric"]'
             )
             if not await self._is_visible(code_input):
-                raise PasswordStepError(
-                    "password_reauth_code_input_missing",
-                    "添加密码重认证未找到验证码输入框",
-                )
+                # The re-auth page can replace the code form while the mailbox
+                # provider is waiting. Re-observe the current page instead of
+                # treating that normal transition as a terminal failure.
+                return False
             try:
                 await code_input.first.fill(
                     code,
@@ -3713,14 +4050,21 @@ class CdpBrowserAutomation:
                     )
                 await submit.first.click(timeout=self.email_action_timeout_ms)
             except Exception:
+                try:
+                    if not await self._is_visible(code_input):
+                        return False
+                except Exception:
+                    return False
                 raise PasswordStepError(
                     "password_reauth_code_submit_failed",
                     "添加密码重认证验证码提交失败",
                 ) from None
+            return True
 
         deadline = monotonic() + max(30.0, float(timeout_seconds))
         email_used = False
         totp_used = False
+        email_resend_attempted = False
         password_submitted = False
         password_inputs_missing_since: float | None = None
         while monotonic() < deadline:
@@ -3755,23 +4099,61 @@ class CdpBrowserAutomation:
             if code_visible and not visible_password_inputs:
                 if AUTHENTICATOR_FACTOR_PATTERN.search(body):
                     if totp_used:
-                        raise PasswordStepError(
-                            "password_totp_reauth_rejected",
-                            "添加密码的 TOTP 重认证未通过",
-                        )
-                    await submit_visible_code(generate_totp(normalized_secret))
-                    totp_used = True
+                        if VERIFICATION_REJECTION_PATTERN.search(body):
+                            raise PasswordStepError(
+                                "password_totp_reauth_rejected",
+                                "添加密码的 TOTP 重认证未通过",
+                            )
+                        await asyncio.sleep(self.poll_interval_seconds)
+                        continue
+                    if await submit_visible_code(generate_totp(normalized_secret)):
+                        totp_used = True
                     await self.delay_sleep(2)
                     continue
                 if path.endswith("/email-verification") or VERIFICATION_PATTERN.search(body):
                     if email_used:
-                        raise PasswordStepError(
-                            "password_email_reauth_rejected",
-                            "添加密码的邮箱验证码重认证未通过",
-                        )
-                    email_code = await email_code_provider(requested_at)
-                    await submit_visible_code(email_code)
-                    email_used = True
+                        if VERIFICATION_REJECTION_PATTERN.search(body):
+                            raise PasswordStepError(
+                                "password_email_reauth_rejected",
+                                "添加密码的邮箱验证码重认证未通过",
+                            )
+                        await asyncio.sleep(self.poll_interval_seconds)
+                        continue
+                    code_requested_at = requested_at
+                    if not email_resend_attempted:
+                        try:
+                            resend_clicked = await page.evaluate(
+                                """
+                                () => {
+                                  const visible = el => !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length)
+                                    && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).display !== 'none';
+                                  const enabled = el => !el.disabled && String(el.getAttribute('aria-disabled') || '').toLowerCase() !== 'true';
+                                  const elements = [...document.querySelectorAll('button,a,[role="button"],[role="link"]')]
+                                    .filter(el => visible(el) && enabled(el));
+                                  const target = elements.find(el => {
+                                    const text = [el.innerText, el.textContent, el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('data-testid')]
+                                      .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim().toLowerCase();
+                                    return /resend|send again|send a new|new code|重新发送|再次发送|重发|重發|再送信|もう一度送信|コードを再送|다시\s*보내|재전송/.test(text);
+                                  });
+                                  if (!target) return false;
+                                  target.scrollIntoView({block:'center'});
+                                  target.click();
+                                  return true;
+                                }
+                                """
+                            )
+                        except Exception:
+                            resend_clicked = False
+                        email_resend_attempted = True
+                        if resend_clicked:
+                            code_requested_at = self.utc_now()
+                            if code_requested_at.tzinfo is None:
+                                raise ValueError("添加密码验证码重发时间必须包含时区")
+                            code_requested_at = code_requested_at.astimezone(timezone.utc)
+                            await self.delay_sleep(1)
+                    email_code = await email_code_provider(code_requested_at)
+                    if await submit_visible_code(email_code):
+                        email_used = True
                     await self.delay_sleep(2)
                     continue
 
@@ -3908,7 +4290,11 @@ class CdpBrowserAutomation:
             return False
 
     @staticmethod
-    def _is_exact_chatgpt_plan_url(value: str) -> bool:
+    def _is_exact_chatgpt_plan_url(
+        value: str,
+        *,
+        timezone_offset: str = "-480",
+    ) -> bool:
         try:
             parsed = urlsplit(value)
             return (
@@ -3918,7 +4304,7 @@ class CdpBrowserAutomation:
                 and parsed.password is None
                 and parsed.port in {None, 443}
                 and parsed.path.rstrip("/") == ACCOUNTS_CHECK_PATH
-                and parsed.query == "timezone_offset_min=-480"
+                and parsed.query == f"timezone_offset_min={timezone_offset}"
                 and not parsed.fragment
             )
         except ValueError:
@@ -4497,6 +4883,7 @@ class CdpBrowserAutomation:
         input_visible = True
         button_visible = True
         current_url = initial_url
+        initial_path = urlsplit(initial_url).path.rstrip("/")
         auth_retry_count = 0
 
         def elapsed_ms() -> int:
@@ -4517,6 +4904,29 @@ class CdpBrowserAutomation:
                     "检测到人机验证或挑战页，探测已停止",
                     stage="verification",
                     wait_ms=elapsed_ms(),
+                )
+
+            if (
+                initial_path.endswith("/email-verification")
+                and AUTHENTICATOR_FACTOR_PATTERN.search(body_text)
+            ):
+                current_url = sanitize_url(page.url)
+                try:
+                    input_visible = await self._is_visible(verification_input)
+                except Exception:
+                    input_visible = True
+                try:
+                    button_visible = await self._is_visible(continue_button)
+                except Exception:
+                    button_visible = True
+                await self._safe_screenshot(page)
+                return _VerificationWaitResult(
+                    next_step="totp",
+                    post_click_state="totp",
+                    wait_elapsed_ms=elapsed_ms(),
+                    url_changed=current_url != initial_url,
+                    input_visible_at_end=input_visible,
+                    button_visible_at_end=button_visible,
                 )
 
             if auth_retry_count < 2 and await self._click_auth_retry_if_available(

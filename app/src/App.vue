@@ -68,11 +68,11 @@ onBeforeUnmount(() => {
         </el-menu-item>
         <el-menu-item index="/payment-tools">
           <el-icon><CreditCard /></el-icon>
-          <template #title>支付工具</template>
+          <template #title>提炼</template>
         </el-menu-item>
         <el-menu-item index="/pipeline">
           <el-icon><Operation /></el-icon>
-          <template #title>日本流水线</template>
+          <template #title>自动流水线</template>
         </el-menu-item>
         <el-menu-item index="/hero-sms">
           <el-icon><Message /></el-icon>

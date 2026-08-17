@@ -6,6 +6,8 @@ const DEFAULT_SETTINGS: ExecutionSettings = {
   roxyApiKey: '',
   roxyApiPort: 50000,
   headless: false,
+  requireRegistrationPassword: false,
+  enableRegistrationTotp: true,
   proxyRetryCount: 1,
   concurrency: 2,
   taskTimeoutSeconds: 0,

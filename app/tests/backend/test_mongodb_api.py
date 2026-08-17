@@ -12,6 +12,7 @@ from backend.resource_service import (
     MongoResourceStore,
     ResourceService,
     infer_proxy_country,
+    interleave_email_parent_groups,
     proxy_country_filter,
 )
 from backend.resource_models import (
@@ -19,6 +20,28 @@ from backend.resource_models import (
     AccountPlanCheckItem,
     AccountPlanCheckResult,
 )
+
+
+def test_email_candidates_are_interleaved_across_parent_mailboxes() -> None:
+    candidates = [
+        {"_id": "a1", "parentEmail": "a@example.com"},
+        {"_id": "a2", "parentEmail": "a@example.com"},
+        {"_id": "b1", "parentEmail": "b@example.com"},
+        {"_id": "b2", "parentEmail": "b@example.com"},
+        {"_id": "manual", "emailNormalized": "manual@example.net"},
+        {"_id": "a3", "parentEmail": "a@example.com"},
+    ]
+
+    ordered = interleave_email_parent_groups(candidates)
+
+    assert [item["_id"] for item in ordered] == [
+        "a1",
+        "b1",
+        "manual",
+        "a2",
+        "b2",
+        "a3",
+    ]
 
 
 def test_resource_records_expose_browser_ready_api798_urls(monkeypatch) -> None:

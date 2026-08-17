@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote, unquote, urlencode, urlparse, urlsplit
@@ -124,6 +125,32 @@ def registration_email_filter(source: str | None = "all") -> dict[str, Any]:
             for domain in REGISTRATION_EXCLUDED_EMAIL_DOMAINS
         ]
     return query
+
+
+def interleave_email_parent_groups(
+    documents: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep queue priority while taking at most one alias per parent each round."""
+    grouped: dict[str, deque[dict[str, Any]]] = {}
+    for document in documents:
+        group_key = str(
+            document.get("parentEmail")
+            or document.get("emailNormalized")
+            or document.get("_id")
+            or ""
+        ).strip().casefold()
+        grouped.setdefault(group_key, deque()).append(document)
+
+    result: list[dict[str, Any]] = []
+    queues = list(grouped.values())
+    while queues:
+        next_round: list[deque[dict[str, Any]]] = []
+        for queue in queues:
+            result.append(queue.popleft())
+            if queue:
+                next_round.append(queue)
+        queues = next_round
+    return result
 
 
 def export_timestamp(now: datetime | None = None) -> str:
@@ -690,10 +717,23 @@ class MongoResourceStore:
         query = await self._exclude_registered_accounts(
             registration_email_filter(email_source)
         )
-        for _ in range(count):
+        candidate_cursor = self.emails.find(
+            query,
+            {
+                "_id": 1,
+                "emailNormalized": 1,
+                "parentEmail": 1,
+                "lastAttemptAt": 1,
+                "importedAt": 1,
+            },
+        ).sort([("lastAttemptAt", ASCENDING), ("importedAt", DESCENDING)])
+        candidates = await self._guard(candidate_cursor.to_list(length=None))
+        for candidate in interleave_email_parent_groups(candidates):
+            if len(reserved) >= count:
+                break
             document = await self._guard(
                 self.emails.find_one_and_update(
-                    query,
+                    {"$and": [query, {"_id": candidate["_id"]}]},
                     {
                         "$set": {
                             "status": "reserved",
@@ -701,18 +741,14 @@ class MongoResourceStore:
                             "reservedAt": utc_now(),
                         }
                     },
-                    # Prefer never-attempted mailboxes. A failed mailbox is
-                    # released to the back of the queue so a retry run does
-                    # not immediately receive the same stale verification
-                    # message again.
-                    sort=[("lastAttemptAt", ASCENDING), ("importedAt", DESCENDING)],
                     return_document=ReturnDocument.AFTER,
                 )
             )
-            if document is None:
-                await self.release_run_reservations(run_id)
-                raise InsufficientEmailsError("可用邮箱数量不足")
-            reserved.append(document)
+            if document is not None:
+                reserved.append(document)
+        if len(reserved) < count:
+            await self.release_run_reservations(run_id)
+            raise InsufficientEmailsError("可用邮箱数量不足")
         return reserved
 
     async def get_reserved_email(

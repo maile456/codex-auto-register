@@ -32,6 +32,8 @@ class ExecutionSettingsInput(BaseModel):
     roxyApiKey: SecretStr
     roxyApiPort: int = Field(ge=1, le=65535, strict=True)
     headless: bool = Field(strict=True)
+    requireRegistrationPassword: bool = Field(default=False, strict=True)
+    enableRegistrationTotp: bool = Field(default=True, strict=True)
     proxyRetryCount: int = Field(ge=0, le=5, strict=True)
     concurrency: int = Field(ge=1, le=12, strict=True)
     taskTimeoutSeconds: int = Field(ge=0, strict=True)
@@ -58,6 +60,8 @@ class StoredExecutionSettings(BaseModel):
     roxyApiKey: SecretStr = SecretStr("")
     roxyApiPort: int = Field(ge=1, le=65535, strict=True)
     headless: bool = Field(strict=True)
+    requireRegistrationPassword: bool = Field(default=False, strict=True)
+    enableRegistrationTotp: bool = Field(default=True, strict=True)
     proxyRetryCount: int = Field(ge=0, le=5, strict=True)
     concurrency: int = Field(ge=1, le=12, strict=True)
     taskTimeoutSeconds: int = Field(ge=0, strict=True)
@@ -80,6 +84,8 @@ class ExecutionSettings(BaseModel):
     roxyApiKey: str
     roxyApiPort: int
     headless: bool
+    requireRegistrationPassword: bool
+    enableRegistrationTotp: bool
     proxyRetryCount: int
     concurrency: int
     taskTimeoutSeconds: int
@@ -93,6 +99,8 @@ class ExecutionSettings(BaseModel):
             roxyApiKey=settings.roxyApiKey.get_secret_value(),
             roxyApiPort=settings.roxyApiPort,
             headless=settings.headless,
+            requireRegistrationPassword=settings.requireRegistrationPassword,
+            enableRegistrationTotp=settings.enableRegistrationTotp,
             proxyRetryCount=settings.proxyRetryCount,
             concurrency=settings.concurrency,
             taskTimeoutSeconds=settings.taskTimeoutSeconds,
@@ -120,6 +128,8 @@ def default_settings() -> StoredExecutionSettings:
         roxyApiKey=SecretStr(""),
         roxyApiPort=50000,
         headless=False,
+        requireRegistrationPassword=False,
+        enableRegistrationTotp=True,
         proxyRetryCount=1,
         concurrency=2,
         taskTimeoutSeconds=0,
@@ -170,6 +180,8 @@ class SettingsStore:
                 roxyApiKey=SecretStr(""),
                 roxyApiPort=50000,
                 headless=False,
+                requireRegistrationPassword=False,
+                enableRegistrationTotp=True,
                 proxyRetryCount=1,
                 concurrency=legacy.concurrency,
                 taskTimeoutSeconds=legacy.taskTimeoutSeconds,
@@ -185,6 +197,8 @@ class SettingsStore:
                 roxyApiKey=incoming.roxyApiKey,
                 roxyApiPort=incoming.roxyApiPort,
                 headless=incoming.headless,
+                requireRegistrationPassword=incoming.requireRegistrationPassword,
+                enableRegistrationTotp=incoming.enableRegistrationTotp,
                 proxyRetryCount=incoming.proxyRetryCount,
                 concurrency=incoming.concurrency,
                 taskTimeoutSeconds=incoming.taskTimeoutSeconds,

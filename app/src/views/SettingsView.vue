@@ -27,6 +27,7 @@ import type { ExecutionSettingsInput, ImportResult, ProxyGroupSummary, ProxyReco
 const store = useAppStore()
 const formRef = ref<FormInstance>()
 const saving = ref(false)
+const registrationSecuritySaving = ref(false)
 const importOpen = ref(false)
 const proxyLoading = ref(false)
 const proxyTableRef = ref<TableInstance>()
@@ -43,6 +44,8 @@ const form = reactive<ExecutionSettingsInput>({
   roxyApiKey: store.settings.roxyApiKey,
   roxyApiPort: store.settings.roxyApiPort,
   headless: store.settings.headless,
+  requireRegistrationPassword: store.settings.requireRegistrationPassword,
+  enableRegistrationTotp: store.settings.enableRegistrationTotp,
   proxyRetryCount: store.settings.proxyRetryCount,
   concurrency: store.settings.concurrency,
   taskTimeoutSeconds: store.settings.taskTimeoutSeconds,
@@ -51,13 +54,17 @@ const form = reactive<ExecutionSettingsInput>({
 watch(
   () => store.settings,
   (settings) => {
-    form.browserExecutablePath = settings.browserExecutablePath
-    form.roxyApiKey = settings.roxyApiKey
-    form.roxyApiPort = settings.roxyApiPort
-    form.headless = settings.headless
-    form.proxyRetryCount = settings.proxyRetryCount
-    form.concurrency = settings.concurrency
-    form.taskTimeoutSeconds = settings.taskTimeoutSeconds
+    if (!registrationSecuritySaving.value) {
+      form.browserExecutablePath = settings.browserExecutablePath
+      form.roxyApiKey = settings.roxyApiKey
+      form.roxyApiPort = settings.roxyApiPort
+      form.headless = settings.headless
+      form.proxyRetryCount = settings.proxyRetryCount
+      form.concurrency = settings.concurrency
+      form.taskTimeoutSeconds = settings.taskTimeoutSeconds
+    }
+    form.requireRegistrationPassword = settings.requireRegistrationPassword
+    form.enableRegistrationTotp = settings.enableRegistrationTotp
   },
   { deep: true },
 )
@@ -119,6 +126,8 @@ async function saveSettings() {
       roxyApiKey: form.roxyApiKey,
       roxyApiPort: form.roxyApiPort,
       headless: form.headless,
+      requireRegistrationPassword: form.requireRegistrationPassword,
+      enableRegistrationTotp: form.enableRegistrationTotp,
       proxyRetryCount: form.proxyRetryCount,
       concurrency: form.concurrency,
       taskTimeoutSeconds: form.taskTimeoutSeconds,
@@ -129,6 +138,35 @@ async function saveSettings() {
     ElMessage.error(error instanceof Error ? error.message : '配置保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function saveRegistrationSecuritySettings() {
+  if (registrationSecuritySaving.value || saving.value) return
+
+  registrationSecuritySaving.value = true
+  try {
+    const settings = store.settings
+    await store.saveSettings({
+      browserExecutablePath: settings.browserExecutablePath,
+      roxyApiKey: settings.roxyApiKey,
+      roxyApiPort: settings.roxyApiPort,
+      headless: settings.headless,
+      requireRegistrationPassword: form.requireRegistrationPassword,
+      enableRegistrationTotp: form.enableRegistrationTotp,
+      proxyRetryCount: settings.proxyRetryCount,
+      concurrency: settings.concurrency,
+      taskTimeoutSeconds: settings.taskTimeoutSeconds,
+    })
+    ElMessage.success(
+      `注册安全设置已保存：密码${form.requireRegistrationPassword ? '开启' : '关闭'}，2FA${form.enableRegistrationTotp ? '开启' : '关闭'}`,
+    )
+  } catch (error) {
+    form.requireRegistrationPassword = store.settings.requireRegistrationPassword
+    form.enableRegistrationTotp = store.settings.enableRegistrationTotp
+    ElMessage.error(error instanceof Error ? error.message : '注册安全设置保存失败')
+  } finally {
+    registrationSecuritySaving.value = false
   }
 }
 
@@ -394,7 +432,13 @@ onMounted(() => void loadProxies())
           <span>最后保存</span>
           <strong>{{ store.settings.updatedAt ? formatDate(store.settings.updatedAt) : '尚未保存到磁盘' }}</strong>
         </div>
-        <el-button type="primary" :icon="Setting" :loading="saving" @click="saveSettings">
+        <el-button
+          type="primary"
+          :icon="Setting"
+          :loading="saving"
+          :disabled="registrationSecuritySaving"
+          @click="saveSettings"
+        >
           保存执行配置
         </el-button>
       </div>
@@ -464,6 +508,36 @@ onMounted(() => void loadProxies())
             <el-form-item label="代理额外重试次数" prop="proxyRetryCount">
               <el-input-number v-model="form.proxyRetryCount" :min="0" :max="5" :step="1" controls-position="right" />
               <small>同一代理初次失败后的额外重试，默认 1</small>
+            </el-form-item>
+            <el-form-item label="注册时设置密码">
+              <div class="registration-setting-control">
+                <el-switch
+                  v-model="form.requireRegistrationPassword"
+                  aria-label="注册时设置密码"
+                  :disabled="saving || registrationSecuritySaving"
+                  :loading="registrationSecuritySaving"
+                  @change="saveRegistrationSecuritySettings"
+                />
+                <strong :class="{ enabled: form.requireRegistrationPassword }">
+                  {{ form.requireRegistrationPassword ? '已开启' : '已关闭' }}
+                </strong>
+              </div>
+              <small>切换后立即保存；开启后强制选择密码注册，关闭后优先使用邮箱验证码</small>
+            </el-form-item>
+            <el-form-item label="注册时设置 2FA">
+              <div class="registration-setting-control">
+                <el-switch
+                  v-model="form.enableRegistrationTotp"
+                  aria-label="注册时设置 2FA"
+                  :disabled="saving || registrationSecuritySaving"
+                  :loading="registrationSecuritySaving"
+                  @change="saveRegistrationSecuritySettings"
+                />
+                <strong :class="{ enabled: form.enableRegistrationTotp }">
+                  {{ form.enableRegistrationTotp ? '已开启' : '已关闭' }}
+                </strong>
+              </div>
+              <small>切换后立即保存；关闭时跳过认证器配置并保留空 TOTP 密钥</small>
             </el-form-item>
             <el-form-item label="最大并发任务" prop="concurrency">
               <el-input-number v-model="form.concurrency" :min="1" :max="12" :step="1" controls-position="right" />
@@ -707,6 +781,24 @@ onMounted(() => void loadProxies())
   margin-top: 20px;
   padding-top: 18px;
   border-top: 1px solid rgb(255 255 255 / 7%);
+}
+
+.registration-setting-control {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 10px;
+}
+
+.registration-setting-control strong {
+  min-width: 42px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.registration-setting-control strong.enabled {
+  color: var(--success);
 }
 
 .el-input-number {

@@ -18,6 +18,7 @@ from backend.browser_automation import (
     EmailStepError,
     PasswordSubmitResult,
     PasswordSetupResult,
+    PasswordStepError,
     ProfileCompletionResult,
     ProfileStepError,
     ProxyNavigationError,
@@ -148,6 +149,23 @@ class FakeRoxy:
 
     async def delete_browser(self, _workspace: int, dir_id: str) -> None:
         self.deleted.append(dir_id)
+
+
+class DeleteRetryRoxy(FakeRoxy):
+    def __init__(self) -> None:
+        super().__init__()
+        self.delete_attempts = 0
+
+    async def delete_browser(self, workspace_id: int, dir_id: str) -> None:
+        self.delete_attempts += 1
+        self.deleted.append(dir_id)
+        if self.delete_attempts == 1:
+            raise RoxyApiError(
+                "PRIVATE_TRANSIENT_DELETE_ERROR",
+                operation="browser_delete",
+                retryable=True,
+                error_kind="transport",
+            )
 
     async def connection_info(
         self,
@@ -456,6 +474,7 @@ class FakeAutomation:
         access_token_outcome: object | None = None,
         plan_check_outcome: object | None = None,
         password_outcome: object | None = None,
+        passwordless_outcome: object | None = None,
     ) -> None:
         self.outcome = outcome
         self.submitted_emails = submitted_emails
@@ -470,6 +489,12 @@ class FakeAutomation:
             final_url="https://auth.openai.com/email-verification",
             next_step="verification",
             pre_continue_delay_ms=2_000,
+            submitted_at_utc=FIXED_RECEIVED_AT,
+        )
+        self.passwordless_outcome = passwordless_outcome or PasswordSubmitResult(
+            final_url="https://auth.openai.com/email-verification",
+            next_step="verification",
+            pre_continue_delay_ms=0,
             submitted_at_utc=FIXED_RECEIVED_AT,
         )
         self.profile_outcome = profile_outcome or ProfileCompletionResult(
@@ -516,6 +541,7 @@ class FakeAutomation:
         )
         self.submitted_verification_codes: list[str] = []
         self.submitted_passwords: list[str] = []
+        self.passwordless_switch_calls = 0
 
     async def __aenter__(self) -> "FakeAutomation":
         return self
@@ -555,6 +581,15 @@ class FakeAutomation:
             raise self.password_outcome
         assert isinstance(self.password_outcome, PasswordSubmitResult)
         return self.password_outcome
+
+    async def switch_password_page_to_email_code(self) -> PasswordSubmitResult:
+        self.passwordless_switch_calls += 1
+        if self.events is not None:
+            self.events.append("passwordless_email_code_selected")
+        if isinstance(self.passwordless_outcome, BaseException):
+            raise self.passwordless_outcome
+        assert isinstance(self.passwordless_outcome, PasswordSubmitResult)
+        return self.passwordless_outcome
 
     async def complete_profile_if_needed(self) -> ProfileCompletionResult:
         if self.events is not None:
@@ -761,8 +796,11 @@ def test_runner_retries_same_proxy_then_rotates_and_cleans_every_window(tmp_path
     assert result["proxyId"] == "p2"
     assert result["emailId"] == "email-id"
     assert result["nextStep"] == "password"
-    assert result["passwordSubmitted"] is True
-    assert result["passwordNextStep"] == "verification"
+    assert "passwordSubmitted" not in result
+    assert "passwordNextStep" not in result
+    assert result["passwordConfigured"] is False
+    assert result["passwordMode"] == "passwordless"
+    assert result["passwordSetupSkippedReason"] == "disabled_by_settings"
     assert result["preContinueDelayMs"] == 2_250
     assert result["emailFillAttempts"] == 1
     assert result["emailFormResetCount"] == 0
@@ -813,6 +851,37 @@ def test_runner_retries_same_proxy_then_rotates_and_cleans_every_window(tmp_path
     assert "person@example.com" not in raw
     assert "PRIVATE_ACCESS_URL" not in raw
     assert "chatgptPassword" not in raw
+
+
+def test_success_cleanup_retries_transient_roxy_delete_failure(
+    tmp_path: Path,
+) -> None:
+    fake_roxy = DeleteRetryRoxy()
+    recovery_clock = FakeWorkspaceClock()
+    runner = BrowserProbeRunner(
+        settings(),
+        workspace_id=None,
+        hold_seconds=0,
+        artifact_writer=ArtifactWriter(tmp_path),
+        mongo_manager=FakeMongo(),  # type: ignore[arg-type]
+        recovery_sleep=recovery_clock.sleep,
+    )
+
+    asyncio.run(
+        runner._cleanup_browser(
+            fake_roxy,
+            1,
+            "dir-transient-delete",
+            observe_delayed_open=False,
+        )
+    )
+
+    assert fake_roxy.delete_attempts == 2
+    assert fake_roxy.deleted == [
+        "dir-transient-delete",
+        "dir-transient-delete",
+    ]
+    assert recovery_clock.sleep_calls == [0.5]
 
 
 def test_runner_retries_transient_roxy_browser_create_failure(tmp_path: Path) -> None:
@@ -1140,9 +1209,12 @@ def test_registration_enables_and_persists_totp(tmp_path: Path) -> None:
 
     assert exit_code == 0
     assert result["status"] == "success"
-    assert result["code"] == "account_security_configured"
+    assert result["code"] == "account_2fa_enabled"
     assert result["totpConfigured"] is True
-    assert result["passwordConfigured"] is True
+    assert result["totpMode"] == "enabled"
+    assert result["passwordConfigured"] is False
+    assert result["passwordMode"] == "passwordless"
+    assert result["passwordSetupSkippedReason"] == "disabled_by_settings"
     assert result["totpActivatedAt"] == "2026-08-09T01:30:05+00:00"
     assert fake_resources.stored_totp == [
         (
@@ -1151,12 +1223,286 @@ def test_registration_enables_and_persists_totp(tmp_path: Path) -> None:
             "REFRESHED_TOKEN_DO_NOT_LOG",
         )
     ]
-    assert len(fake_resources.stored_passwords) == 1
-    assert fake_resources.stored_passwords[0][0] == "account-id"
+    assert fake_resources.stored_passwords == []
+    assert "password_configured" not in events
     raw = (tmp_path / "latest.json").read_text(encoding="utf-8")
     assert "JBSWY3DPEHPK3PXP" not in raw
     assert "REFRESHED_TOKEN_DO_NOT_LOG" not in raw
     assert len(fake_mailbox.wait_calls) == 2
+
+
+def test_registration_can_skip_totp_without_failing_account(tmp_path: Path) -> None:
+    fake_store = FakeStore([proxy("p1")])
+    fake_roxy = FakeRoxy()
+    events: list[str] = []
+    fake_resources = TotpResourceStore(events=events)
+    fake_mailbox = MsgTimeMailboxClient(events)
+    automation_result = AutomationResult(
+        "203.0.*.*",
+        "https://auth.openai.com/email-verification",
+        123,
+        "verification",
+        1_500,
+        FIXED_SUBMITTED_AT,
+    )
+    fake_automation = TotpAutomation(automation_result, [], events)
+    totp_disabled_settings = settings().model_copy(
+        update={"enableRegistrationTotp": False}
+    )
+    runner = BrowserProbeRunner(
+        totp_disabled_settings,
+        workspace_id=None,
+        hold_seconds=0,
+        artifact_writer=ArtifactWriter(tmp_path),
+        mongo_manager=FakeMongo(),  # type: ignore[arg-type]
+        mailbox_client=fake_mailbox,  # type: ignore[arg-type]
+        roxy_factory=lambda *_args, **_kwargs: fake_roxy,  # type: ignore[arg-type]
+        automation_factory=lambda *_args, **_kwargs: fake_automation,  # type: ignore[arg-type]
+    )
+    runner.store = fake_store  # type: ignore[assignment]
+    runner.resources = fake_resources  # type: ignore[assignment]
+
+    result, exit_code = asyncio.run(runner.run())
+
+    assert exit_code == 0
+    assert result["status"] == "success"
+    assert result["code"] == "account_access_token_extracted"
+    assert result["totpConfigured"] is False
+    assert result["totpMode"] == "disabled"
+    assert result["totpSetupSkippedReason"] == "disabled_by_settings"
+    assert fake_resources.stored_totp == []
+    assert fake_resources.stored_passwords == []
+    assert "totp_reauth_started" not in events
+    assert "totp_activated" not in events
+    assert "totp_stored" not in events
+    assert len(fake_mailbox.wait_calls) == 1
+
+
+def test_required_registration_password_rejects_passwordless_flow(
+    tmp_path: Path,
+) -> None:
+    fake_store = FakeStore([proxy("p1")])
+    fake_resources = FakeResourceStore()
+    fake_roxy = FakeRoxy()
+    automation_result = AutomationResult(
+        "203.0.*.*",
+        "https://auth.openai.com/email-verification",
+        123,
+        "verification",
+        1_500,
+        FIXED_SUBMITTED_AT,
+    )
+    strict_settings = settings().model_copy(
+        update={"requireRegistrationPassword": True}
+    )
+    runner = BrowserProbeRunner(
+        strict_settings,
+        workspace_id=None,
+        hold_seconds=0,
+        artifact_writer=ArtifactWriter(tmp_path),
+        mongo_manager=FakeMongo(),  # type: ignore[arg-type]
+        mailbox_client=FakeMailboxClient(),  # type: ignore[arg-type]
+        roxy_factory=lambda *_args, **_kwargs: fake_roxy,  # type: ignore[arg-type]
+        automation_factory=lambda *_args, **_kwargs: FakeAutomation(
+            automation_result, []
+        ),  # type: ignore[arg-type]
+    )
+    runner.store = fake_store  # type: ignore[assignment]
+    runner.resources = fake_resources  # type: ignore[assignment]
+
+    with pytest.raises(PasswordStepError) as exc_info:
+        asyncio.run(runner.run())
+
+    assert exc_info.value.code == "registration_password_not_offered"
+    assert fake_resources.completed == []
+    assert fake_resources.released == [("email-id", runner.owner)]
+
+
+def test_required_registration_password_still_submits_password_page(
+    tmp_path: Path,
+) -> None:
+    fake_store = FakeStore([proxy("p1")])
+    fake_resources = FakeResourceStore()
+    fake_roxy = FakeRoxy()
+    automation_result = AutomationResult(
+        "203.0.*.*",
+        "https://chatgpt.com/auth/create-account/password",
+        123,
+        "password",
+        1_500,
+        FIXED_SUBMITTED_AT,
+    )
+    fake_automation = FakeAutomation(automation_result, [])
+    runner = BrowserProbeRunner(
+        settings().model_copy(
+            update={
+                "requireRegistrationPassword": True,
+                "enableRegistrationTotp": False,
+            }
+        ),
+        workspace_id=None,
+        hold_seconds=0,
+        artifact_writer=ArtifactWriter(tmp_path),
+        mongo_manager=FakeMongo(),  # type: ignore[arg-type]
+        mailbox_client=FakeMailboxClient(),  # type: ignore[arg-type]
+        roxy_factory=lambda *_args, **_kwargs: fake_roxy,  # type: ignore[arg-type]
+        automation_factory=lambda *_args, **_kwargs: fake_automation,  # type: ignore[arg-type]
+        password_factory=lambda: "ValidPassword1!",
+    )
+    runner.store = fake_store  # type: ignore[assignment]
+    runner.resources = fake_resources  # type: ignore[assignment]
+
+    result, exit_code = asyncio.run(runner.run())
+
+    assert exit_code == 0
+    assert result["code"] == "account_password_configured"
+    assert result["passwordConfigured"] is True
+    assert result["passwordMode"] == "signup"
+    assert fake_automation.submitted_passwords == ["ValidPassword1!"]
+    assert fake_automation.passwordless_switch_calls == 0
+    assert fake_resources.completed == [("email-id", runner.owner)]
+
+
+def test_disabled_registration_password_switches_password_page_to_email_code(
+    tmp_path: Path,
+) -> None:
+    fake_store = FakeStore([proxy("p1")])
+    fake_resources = FakeResourceStore()
+    fake_roxy = FakeRoxy()
+    fake_mailbox = FakeMailboxClient()
+    automation_result = AutomationResult(
+        "203.0.*.*",
+        "https://chatgpt.com/auth/create-account/password",
+        123,
+        "password",
+        1_500,
+        FIXED_SUBMITTED_AT,
+    )
+    fake_automation = FakeAutomation(automation_result, [])
+    disabled_settings = settings().model_copy(
+        update={
+            "requireRegistrationPassword": False,
+            "enableRegistrationTotp": False,
+        }
+    )
+    runner = BrowserProbeRunner(
+        disabled_settings,
+        workspace_id=None,
+        hold_seconds=0,
+        artifact_writer=ArtifactWriter(tmp_path),
+        mongo_manager=FakeMongo(),  # type: ignore[arg-type]
+        mailbox_client=fake_mailbox,  # type: ignore[arg-type]
+        roxy_factory=lambda *_args, **_kwargs: fake_roxy,  # type: ignore[arg-type]
+        automation_factory=lambda *_args, **_kwargs: fake_automation,  # type: ignore[arg-type]
+    )
+    runner.store = fake_store  # type: ignore[assignment]
+    runner.resources = fake_resources  # type: ignore[assignment]
+
+    result, exit_code = asyncio.run(runner.run())
+
+    assert exit_code == 0
+    assert result["code"] == "account_access_token_extracted"
+    assert result["passwordConfigured"] is False
+    assert result["passwordMode"] == "passwordless"
+    assert result["passwordSetupSkippedReason"] == "disabled_by_settings"
+    assert fake_automation.passwordless_switch_calls == 1
+    assert fake_automation.submitted_passwords == []
+    assert fake_mailbox.wait_calls[0][2] == FIXED_RECEIVED_AT
+    assert fake_resources.completed == [("email-id", runner.owner)]
+
+
+def test_disabled_registration_password_rejects_non_verification_switch(
+    tmp_path: Path,
+) -> None:
+    fake_store = FakeStore([proxy("p1")])
+    fake_resources = FakeResourceStore()
+    fake_roxy = FakeRoxy()
+    automation_result = AutomationResult(
+        "203.0.*.*",
+        "https://chatgpt.com/auth/create-account/password",
+        123,
+        "password",
+        1_500,
+        FIXED_SUBMITTED_AT,
+    )
+    fake_automation = FakeAutomation(
+        automation_result,
+        [],
+        passwordless_outcome=PasswordSubmitResult(
+            final_url="https://chatgpt.com/",
+            next_step="account_home",
+            pre_continue_delay_ms=0,
+            submitted_at_utc=FIXED_RECEIVED_AT,
+        ),
+    )
+    runner = BrowserProbeRunner(
+        settings().model_copy(update={"requireRegistrationPassword": False}),
+        workspace_id=None,
+        hold_seconds=0,
+        artifact_writer=ArtifactWriter(tmp_path),
+        mongo_manager=FakeMongo(),  # type: ignore[arg-type]
+        mailbox_client=FakeMailboxClient(),  # type: ignore[arg-type]
+        roxy_factory=lambda *_args, **_kwargs: fake_roxy,  # type: ignore[arg-type]
+        automation_factory=lambda *_args, **_kwargs: fake_automation,  # type: ignore[arg-type]
+    )
+    runner.store = fake_store  # type: ignore[assignment]
+    runner.resources = fake_resources  # type: ignore[assignment]
+
+    with pytest.raises(PasswordStepError) as exc_info:
+        asyncio.run(runner.run())
+
+    assert exc_info.value.code == "passwordless_email_code_not_reached"
+    assert fake_automation.passwordless_switch_calls == 1
+    assert fake_automation.submitted_passwords == []
+    assert fake_resources.completed == []
+    assert fake_resources.released == [("email-id", runner.owner)]
+
+
+def test_disabled_registration_password_preserves_existing_totp_detection(
+    tmp_path: Path,
+) -> None:
+    fake_store = FakeStore([proxy("p1")])
+    fake_resources = FakeResourceStore()
+    fake_roxy = FakeRoxy()
+    automation_result = AutomationResult(
+        "203.0.*.*",
+        "https://chatgpt.com/auth/create-account/password",
+        123,
+        "password",
+        1_500,
+        FIXED_SUBMITTED_AT,
+    )
+    fake_automation = FakeAutomation(
+        automation_result,
+        [],
+        passwordless_outcome=PasswordSubmitResult(
+            final_url="https://auth.openai.com/email-verification",
+            next_step="totp",
+            pre_continue_delay_ms=0,
+            submitted_at_utc=FIXED_RECEIVED_AT,
+        ),
+    )
+    runner = BrowserProbeRunner(
+        settings().model_copy(update={"requireRegistrationPassword": False}),
+        workspace_id=None,
+        hold_seconds=0,
+        artifact_writer=ArtifactWriter(tmp_path),
+        mongo_manager=FakeMongo(),  # type: ignore[arg-type]
+        mailbox_client=FakeMailboxClient(),  # type: ignore[arg-type]
+        roxy_factory=lambda *_args, **_kwargs: fake_roxy,  # type: ignore[arg-type]
+        automation_factory=lambda *_args, **_kwargs: fake_automation,  # type: ignore[arg-type]
+    )
+    runner.store = fake_store  # type: ignore[assignment]
+    runner.resources = fake_resources  # type: ignore[assignment]
+
+    with pytest.raises(EmailStepError) as exc_info:
+        asyncio.run(runner.run())
+
+    assert exc_info.value.code == "existing_account_totp_required"
+    assert fake_automation.passwordless_switch_calls == 1
+    assert fake_automation.submitted_passwords == []
+    assert fake_resources.completed == []
+    assert fake_resources.released == [("email-id", runner.owner)]
 
 
 def test_existing_profile_is_skipped_persisted_and_holds_on_home_page(

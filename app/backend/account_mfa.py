@@ -284,9 +284,19 @@ class PaidAccountMfaBackfill:
                             verification_requested_at,
                             baseline=baseline,
                         )
-                        await automation.submit_verification_code_and_continue(
-                            code.verification_code
+                        verification_result = (
+                            await automation.submit_verification_code_and_continue(
+                                code.verification_code
+                            )
                         )
+                        if verification_result.next_step == "totp":
+                            if not local_totp_secret:
+                                raise TotpEnrollmentError(
+                                    "existing_login",
+                                    "existing_totp_secret_unknown",
+                                    "账号已经要求 TOTP，但本地没有对应 Secret",
+                                )
+                            await automation.submit_totp_challenge(local_totp_secret)
                         await automation.complete_profile_if_needed()
                     elif next_step not in {"account_home", "transitioned"}:
                         raise EmailStepError(

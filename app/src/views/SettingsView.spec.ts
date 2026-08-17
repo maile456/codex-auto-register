@@ -84,6 +84,8 @@ describe('SettingsView Roxy execution settings', () => {
         roxyApiKey: input.roxyApiKey,
         roxyApiPort: input.roxyApiPort,
         headless: input.headless,
+        requireRegistrationPassword: input.requireRegistrationPassword,
+        enableRegistrationTotp: input.enableRegistrationTotp,
         proxyRetryCount: input.proxyRetryCount,
         concurrency: input.concurrency,
         taskTimeoutSeconds: input.taskTimeoutSeconds,
@@ -110,10 +112,60 @@ describe('SettingsView Roxy execution settings', () => {
       roxyApiKey: TEST_API_KEY,
       roxyApiPort: 50000,
       headless: true,
+      requireRegistrationPassword: false,
+      enableRegistrationTotp: true,
       proxyRetryCount: 1,
     }))
     expect((apiKeyInput(wrapper).element as HTMLInputElement).value).toBe(TEST_API_KEY)
     expect(wrapper.text()).toContain('密钥已配置')
+  })
+
+  it('immediately saves password and 2FA switches independently and shows their state', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const store = useAppStore()
+    vi.spyOn(store, 'refreshProxies').mockResolvedValue(proxyPage([], 0, store.proxyQuery))
+    const save = vi.spyOn(store, 'saveSettings').mockImplementation(async (input) => {
+      store.settings = {
+        ...store.settings,
+        ...input,
+        updatedAt: new Date().toISOString(),
+      }
+      return store.settings
+    })
+    const wrapper = mount(SettingsView, {
+      global: { plugins: [pinia, ElementPlus] },
+    })
+    await flushPromises()
+
+    const passwordSwitch = wrapper.get('[aria-label="注册时设置密码"]')
+    const totpSwitch = wrapper.get('[aria-label="注册时设置 2FA"]')
+    const passwordItem = passwordSwitch.element.closest('.el-form-item')
+    const totpItem = totpSwitch.element.closest('.el-form-item')
+    expect(passwordItem?.textContent).toContain('已关闭')
+    expect(totpItem?.textContent).toContain('已开启')
+    await apiKeyInput(wrapper).setValue('UNSAVED_DRAFT_KEY')
+
+    await passwordSwitch.setValue(true)
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+      requireRegistrationPassword: true,
+      enableRegistrationTotp: true,
+    }))
+    expect(passwordItem?.textContent).toContain('已开启')
+    expect((apiKeyInput(wrapper).element as HTMLInputElement).value).toBe('UNSAVED_DRAFT_KEY')
+
+    await totpSwitch.setValue(false)
+    await flushPromises()
+
+    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+      requireRegistrationPassword: true,
+      enableRegistrationTotp: false,
+    }))
+    expect(totpItem?.textContent).toContain('已关闭')
   })
 
   it('submits an empty API key when the user explicitly clears the field', async () => {

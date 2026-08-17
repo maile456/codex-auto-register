@@ -35,13 +35,13 @@ const router = createRouter({
       path: '/payment-tools',
       name: 'payment-tools',
       component: () => import('@/views/PaymentToolsView.vue'),
-      meta: { title: '支付工具' },
+      meta: { title: '提炼' },
     },
     {
       path: '/pipeline',
       name: 'pipeline',
       component: () => import('@/views/PipelineView.vue'),
-      meta: { title: 'Plus 流水线' },
+      meta: { title: '自动流水线' },
     },
     {
       path: '/hero-sms',

@@ -24,6 +24,8 @@ def valid_payload(**overrides: object) -> dict[str, object]:
         "roxyApiKey": "",
         "roxyApiPort": 50000,
         "headless": False,
+        "requireRegistrationPassword": False,
+        "enableRegistrationTotp": True,
         "proxyRetryCount": 1,
         "concurrency": 2,
         "taskTimeoutSeconds": 0,
@@ -39,6 +41,8 @@ def public_defaults() -> dict[str, object]:
         "roxyApiKey": "",
         "roxyApiPort": 50000,
         "headless": False,
+        "requireRegistrationPassword": False,
+        "enableRegistrationTotp": True,
         "proxyRetryCount": 1,
         "concurrency": 2,
         "taskTimeoutSeconds": 0,
@@ -187,6 +191,72 @@ def test_headless_requires_a_real_boolean(tmp_path: Path, headless: object) -> N
         "/api/settings/execution", json=valid_payload(headless=headless)
     )
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("value", [0, 1, "true", None])
+def test_require_registration_password_requires_a_real_boolean(
+    tmp_path: Path,
+    value: object,
+) -> None:
+    response = client_for(tmp_path / "settings.json").put(
+        "/api/settings/execution",
+        json=valid_payload(requireRegistrationPassword=value),
+    )
+    assert response.status_code == 422
+
+
+def test_require_registration_password_is_persisted(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    response = client_for(settings_path).put(
+        "/api/settings/execution",
+        json=valid_payload(requireRegistrationPassword=True),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["requireRegistrationPassword"] is True
+    assert json.loads(settings_path.read_text(encoding="utf-8"))[
+        "requireRegistrationPassword"
+    ] is True
+
+
+@pytest.mark.parametrize("value", [0, 1, "true", None])
+def test_enable_registration_totp_requires_a_real_boolean(
+    tmp_path: Path,
+    value: object,
+) -> None:
+    response = client_for(tmp_path / "settings.json").put(
+        "/api/settings/execution",
+        json=valid_payload(enableRegistrationTotp=value),
+    )
+    assert response.status_code == 422
+
+
+def test_enable_registration_totp_can_be_disabled_and_persisted(
+    tmp_path: Path,
+) -> None:
+    settings_path = tmp_path / "settings.json"
+    response = client_for(settings_path).put(
+        "/api/settings/execution",
+        json=valid_payload(enableRegistrationTotp=False),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["enableRegistrationTotp"] is False
+    assert json.loads(settings_path.read_text(encoding="utf-8"))[
+        "enableRegistrationTotp"
+    ] is False
+
+
+def test_schema_two_without_totp_switch_defaults_to_enabled(tmp_path: Path) -> None:
+    settings_path = tmp_path / "settings.json"
+    payload = public_defaults()
+    payload.pop("enableRegistrationTotp")
+    settings_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    response = client_for(settings_path).get("/api/settings/execution")
+
+    assert response.status_code == 200
+    assert response.json()["enableRegistrationTotp"] is True
 
 
 def test_api_key_is_persisted_and_returned_in_plaintext(tmp_path: Path) -> None:

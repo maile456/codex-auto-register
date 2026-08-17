@@ -488,19 +488,24 @@ class BrowserProbeRunner:
                                                         "account_2fa_enabled"
                                                         if totp_enrollment is not None
                                                         else (
-                                                            "account_access_token_extracted"
-                                                            if access_token_extraction is not None
-                                                            and access_token_updated_at is not None
+                                                            "account_password_configured"
+                                                            if password_setup is not None
+                                                            or password_submission is not None
                                                             else (
-                                                                "security_key_setup_page_reached"
-                                                                if security_navigation is not None
+                                                                "account_access_token_extracted"
+                                                                if access_token_extraction is not None
+                                                                and access_token_updated_at is not None
                                                                 else (
-                                                                    "account_profile_completed"
-                                                                    if profile_completion is not None
+                                                                    "security_key_setup_page_reached"
+                                                                    if security_navigation is not None
                                                                     else (
-                                                                        "verification_continue_accepted"
-                                                                        if verification_submission is not None
-                                                                        else "email_continue_accepted"
+                                                                        "account_profile_completed"
+                                                                        if profile_completion is not None
+                                                                        else (
+                                                                            "verification_continue_accepted"
+                                                                            if verification_submission is not None
+                                                                            else "email_continue_accepted"
+                                                                        )
                                                                     )
                                                                 )
                                                             )
@@ -770,6 +775,7 @@ class BrowserProbeRunner:
                                 result.update(
                                     {
                                         "totpConfigured": True,
+                                        "totpMode": "enabled",
                                         "totpActivatedAt": (
                                             totp_enrollment.activated_at_utc.isoformat()
                                         ),
@@ -780,9 +786,18 @@ class BrowserProbeRunner:
                                     {
                                         "message": totp_error.message,
                                         "totpConfigured": False,
+                                        "totpMode": "failed",
                                         "totpStage": totp_error.stage,
                                         "totpCode": totp_error.code,
                                         "totpHttpStatus": totp_error.http_status,
+                                    }
+                                )
+                            elif not self.settings.enableRegistrationTotp:
+                                result.update(
+                                    {
+                                        "totpConfigured": False,
+                                        "totpMode": "disabled",
+                                        "totpSetupSkippedReason": "disabled_by_settings",
                                     }
                                 )
                             if (
@@ -790,6 +805,11 @@ class BrowserProbeRunner:
                                 or password_submission is not None
                             ):
                                 result["passwordConfigured"] = True
+                                result["passwordMode"] = (
+                                    "signup"
+                                    if password_submission is not None
+                                    else "settings"
+                                )
                                 if password_setup is not None:
                                     result["passwordConfiguredAt"] = (
                                         password_setup.configured_at_utc.isoformat()
@@ -806,6 +826,16 @@ class BrowserProbeRunner:
                                         "message": password_setup_error.message,
                                         "passwordConfigured": False,
                                         "passwordCode": password_setup_error.code,
+                                    }
+                                )
+                            elif account_id is not None:
+                                result.update(
+                                    {
+                                        "passwordConfigured": False,
+                                        "passwordMode": "passwordless",
+                                        "passwordSetupSkippedReason": (
+                                            "disabled_by_settings"
+                                        ),
                                     }
                                 )
                             if security_navigation is not None:
@@ -1365,6 +1395,25 @@ class BrowserProbeRunner:
         except RoxyApiError as exc:
             delete_error = exc
 
+        if (
+            not observe_delayed_open
+            and delete_error is not None
+            and delete_error.retryable
+        ):
+            for _ in range(2):
+                await self.recovery_sleep(
+                    self.browser_open_recovery_interval_seconds
+                )
+                try:
+                    await roxy.delete_browser(workspace_id, dir_id)
+                except RoxyApiError as exc:
+                    delete_error = exc
+                    if not exc.retryable:
+                        break
+                else:
+                    delete_error = None
+                    break
+
         if not observe_delayed_open:
             if delete_error is not None:
                 raise ProbeFailure(
@@ -1526,6 +1575,11 @@ class BrowserProbeRunner:
             async with self.automation_factory(
                 opened.ws,
                 self.artifacts.screenshot_path,
+                signup_screen_hint=(
+                    "signup"
+                    if self.settings.requireRegistrationPassword
+                    else "login_or_signup"
+                ),
             ) as automation:
                 await self._emit_progress("login", dirId=dir_id)
                 mailbox_baseline: MailboxSnapshot | None = None
@@ -1543,6 +1597,14 @@ class BrowserProbeRunner:
                             received_offset=None,
                         )
                 result = await automation.submit_email_and_continue(email)
+                if (
+                    self.settings.requireRegistrationPassword
+                    and result.next_step != "password"
+                ):
+                    raise PasswordStepError(
+                        "registration_password_not_offered",
+                        "注册服务未提供密码创建步骤，已停止无密码注册",
+                    )
                 self.egress_ip = result.egress_ip
                 await self._emit_progress(
                     "email",
@@ -1570,17 +1632,40 @@ class BrowserProbeRunner:
                 registration_next_step = result.next_step
                 verification_requested_at = result.submitted_at_utc
                 if result.next_step == "password":
-                    await self._emit_progress(
-                        "password",
-                        dirId=dir_id,
-                        egressIp=result.egress_ip,
-                    )
-                    account_password = self.password_factory()
-                    password_submission = await automation.submit_password_and_continue(
-                        account_password
-                    )
-                    registration_next_step = password_submission.next_step
-                    verification_requested_at = password_submission.submitted_at_utc
+                    if self.settings.requireRegistrationPassword:
+                        await self._emit_progress(
+                            "password",
+                            dirId=dir_id,
+                            egressIp=result.egress_ip,
+                        )
+                        account_password = self.password_factory()
+                        password_submission = (
+                            await automation.submit_password_and_continue(
+                                account_password
+                            )
+                        )
+                        registration_next_step = password_submission.next_step
+                        verification_requested_at = (
+                            password_submission.submitted_at_utc
+                        )
+                    else:
+                        passwordless_submission = (
+                            await automation.switch_password_page_to_email_code()
+                        )
+                        registration_next_step = passwordless_submission.next_step
+                        verification_requested_at = (
+                            passwordless_submission.submitted_at_utc
+                        )
+                        if registration_next_step == "totp":
+                            raise EmailStepError(
+                                "existing_account_totp_required",
+                                "该邮箱已存在账号并要求认证器验证码",
+                            )
+                        if registration_next_step != "verification":
+                            raise PasswordStepError(
+                                "passwordless_email_code_not_reached",
+                                "关闭注册密码后，密码页面未能切换到邮箱验证码页面",
+                            )
                 if registration_next_step != "verification":
                     if registration_next_step == "totp":
                         raise EmailStepError(
@@ -1700,7 +1785,8 @@ class BrowserProbeRunner:
                                             # Classification is advisory and must not fail registration.
                                             pass
                     if (
-                        access_token_extraction is not None
+                        self.settings.enableRegistrationTotp
+                        and access_token_extraction is not None
                         and access_token_updated_at is not None
                         and access_token_error is None
                         and callable(
@@ -1758,78 +1844,6 @@ class BrowserProbeRunner:
                                 "totp_store",
                                 "totp_setup_or_store_failed",
                                 "2FA 设置或保存失败",
-                            )
-                    if totp_enrollment is not None and not account_password:
-                        await self._emit_progress(
-                            "password_setup",
-                            dirId=dir_id,
-                            egressIp=result.egress_ip,
-                        )
-                        generated_password = self.password_factory()
-                        try:
-                            password_baseline: MailboxSnapshot | None = None
-                            if callable(baseline_reader):
-                                try:
-                                    password_baseline = await baseline_reader(
-                                        access_url, email
-                                    )
-                                except MailboxClientError:
-                                    password_baseline = None
-
-                            async def password_email_code(
-                                requested_at: datetime,
-                            ) -> str:
-                                if totp_verification is not None:
-                                    return totp_verification.verification_code
-                                options: dict[str, Any] = {}
-                                if password_baseline is not None:
-                                    options["baseline"] = password_baseline
-                                try:
-                                    code = await self.mailbox.wait_for_new_code(
-                                        access_url,
-                                        email,
-                                        requested_at,
-                                        **options,
-                                    )
-                                except MailboxClientError:
-                                    raise PasswordStepError(
-                                        "password_email_code_failed",
-                                        "添加密码邮箱验证码获取失败",
-                                    ) from None
-                                return code.verification_code
-
-                            password_setup = await automation.add_password_in_settings(
-                                generated_password,
-                                totp_enrollment.secret,
-                                password_email_code,
-                            )
-                            await self.resources.store_account_password(
-                                account.id,
-                                generated_password,
-                                password_setup.configured_at_utc,
-                            )
-                            account_password = generated_password
-                        except PasswordStepError as exc:
-                            password_setup_error = exc
-                        except MailboxClientError:
-                            password_setup_error = PasswordStepError(
-                                "password_mailbox_failed",
-                                "添加密码邮箱访问失败",
-                            )
-                        except (MongoUnavailableError, ResourceNotFoundError):
-                            password_setup_error = PasswordStepError(
-                                "password_store_failed",
-                                "密码设置完成但保存账号记录失败",
-                            )
-                        except OSError:
-                            password_setup_error = PasswordStepError(
-                                "password_io_failed",
-                                "添加密码流程发生本地读写错误",
-                            )
-                        except ValueError:
-                            password_setup_error = PasswordStepError(
-                                "password_value_error",
-                                "添加密码流程的数据校验失败",
                             )
                     if SECURITY_NAVIGATION_ENABLED:
                         try:
