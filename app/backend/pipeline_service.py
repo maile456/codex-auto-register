@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -32,6 +34,10 @@ TERMINAL_PAYMENT_STATES = {"completed", "failed", "cancelled"}
 MAIL_CONFIRMATION_INTERVAL = timedelta(seconds=20)
 MAIL_CONFIRMATION_WINDOW = timedelta(minutes=10)
 JST = timezone(timedelta(hours=9), name="JST")
+PIPELINE_LOG_LIMIT = 100
+PROTOCOL_PROXY_LIMIT = 500
+PAYMENT_LINK_TTL = timedelta(minutes=15)
+PAYMENT_LINK_MIN_REMAINING = timedelta(seconds=15)
 
 
 def utc_now() -> datetime:
@@ -46,8 +52,8 @@ class PipelineSettingsUpdate(PipelineModel):
     enabled: bool = False
     extractionConcurrency: int = Field(default=1, ge=1, le=10)
     paymentConcurrency: int = Field(default=1, ge=1, le=5)
-    extractionFailureRetries: int = Field(default=2, ge=0, le=10)
-    paymentFailureRetries: int = Field(default=2, ge=0, le=10)
+    extractionFailureRetries: int = Field(default=0, ge=0, le=10)
+    paymentFailureRetries: int = Field(default=0, ge=0, le=10)
     country: str = Field(default=DEFAULT_PIPELINE_COUNTRY, min_length=2, max_length=2)
     checkoutProxy: str = Field(default="", max_length=200_000)
     updateProxy: str = Field(default="", max_length=200_000)
@@ -111,15 +117,37 @@ class PipelineBatchInput(PipelineModel):
     ids: list[str] = Field(default_factory=list, max_length=100)
 
 
+PipelinePaidExportFormat = Literal[
+    "original",
+    "password_totp",
+    "sub2api",
+    "codex_json",
+]
+
+
 class PipelinePaidExportInput(PipelineModel):
     ids: list[str] = Field(default_factory=list, max_length=10_000)
     query: str = Field(default="", max_length=320)
     exportState: Literal["all", "exported", "unexported"] = "all"
+    format: PipelinePaidExportFormat = "original"
+    formats: list[PipelinePaidExportFormat] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=4,
+    )
 
     @field_validator("query")
     @classmethod
     def trim_query(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("formats")
+    @classmethod
+    def unique_formats(
+        cls,
+        value: list[PipelinePaidExportFormat] | None,
+    ) -> list[PipelinePaidExportFormat] | None:
+        return list(dict.fromkeys(value)) if value is not None else None
 
 
 class PipelinePaidExportStatusInput(PipelineModel):
@@ -136,6 +164,9 @@ class SmsReceiverSettingsUpdate(PipelineModel):
     autoSubmit: bool = False
     baseUrl: str = Field(default="", max_length=2048)
     mailboxPublicBaseUrl: str = Field(default="", max_length=2048)
+    concurrency: int = Field(default=3, ge=1, le=10)
+    failureRetries: int = Field(default=1, ge=0, le=3)
+    retryBackoffSeconds: int = Field(default=30, ge=5, le=600)
 
     @field_validator("baseUrl", "mailboxPublicBaseUrl")
     @classmethod
@@ -148,6 +179,35 @@ class SmsReceiverSettingsUpdate(PipelineModel):
             raise ValueError("服务器地址必须是完整的 http:// 或 https:// URL")
         if parsed.query or parsed.fragment:
             raise ValueError("服务器地址不能包含查询参数或锚点")
+        return normalized
+
+
+class SmsReceiverHeroSmsSettingsUpdate(PipelineModel):
+    apiKey: str = ""
+    countryIds: list[int] = Field(min_length=1, max_length=10)
+    minPrice: float | None = Field(default=None, ge=0, le=100)
+    maxPrice: float = Field(gt=0, le=100)
+    preferredPrice: float | None = Field(default=None, ge=0, le=100)
+    acquirePriority: Literal["country", "price", "price_high"] = "country"
+    maxRetries: int = Field(ge=1, le=50)
+    codeWaitSeconds: int = Field(ge=30, le=600)
+    emailOtpWaitSeconds: int = Field(default=90, ge=30, le=300)
+    emailOtpPollIntervalSeconds: int = Field(default=3, ge=1, le=30)
+    emailOtpAttempts: int = Field(default=1, ge=1, le=5)
+    reuseEnabled: bool = False
+    credentialConfigured: bool | None = None
+
+    @field_validator("apiKey")
+    @classmethod
+    def trim_api_key(cls, value: str) -> str:
+        return str(value or "").strip()
+
+    @field_validator("countryIds")
+    @classmethod
+    def normalize_country_ids(cls, value: list[int]) -> list[int]:
+        normalized = list(dict.fromkeys(value))
+        if any(country_id < 0 or country_id > 9999 for country_id in normalized):
+            raise ValueError("HeroSMS 国家 ID 必须在 0 - 9999 之间")
         return normalized
 
 
@@ -215,6 +275,7 @@ class AccountPipelineService:
         self._tick_lock = asyncio.Lock()
         self._agreement_hero_tasks: set[asyncio.Task[None]] = set()
         self._sms_receiver_tasks: set[asyncio.Task[None]] = set()
+        self._sms_receiver_submit_lock = asyncio.Lock()
 
     @property
     def items(self) -> Any:
@@ -223,6 +284,124 @@ class AccountPipelineService:
     @property
     def settings_collection(self) -> Any:
         return self.manager.database["pipeline_settings"]
+
+    @staticmethod
+    def _safe_log_message(value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "状态已更新"
+        text = re.sub(r"(?i)(https?://[^\s:/]+:)[^@\s]+@", r"\1***@", text)
+        text = re.sub(
+            r"(?i)(\b(?:token|access[_-]?token|refresh[_-]?token|ba[_-]?token|ec[_-]?token|authorization|cookie|password|secret|api[_-]?key|otp|code)\b\s*[:=]\s*)([^\s,;}{]+)",
+            r"\1<redacted>",
+            text,
+        )
+        text = re.sub(
+            r"\b([A-Za-z0-9._%+\-]{1,64})@([A-Za-z0-9.\-]+\.[A-Za-z]{2,})\b",
+            lambda match: f"{match.group(1)[:2]}***@{match.group(2)}",
+            text,
+        )
+        text = re.sub(r"(?<!\w)\+?\d[\d(). -]{7,18}\d(?!\w)", "<redacted-phone>", text)
+        return text[:500]
+
+    @classmethod
+    def _log_entry(
+        cls,
+        event: str,
+        message: Any,
+        *,
+        level: Literal["info", "success", "warning", "error"] = "info",
+        timestamp: datetime | None = None,
+        code: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        safe_details: dict[str, Any] = {}
+        for key, value in (details or {}).items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                safe_details[str(key)[:64]] = cls._safe_log_message(value) if isinstance(value, str) else value
+        entry: dict[str, Any] = {
+            "id": uuid.uuid4().hex,
+            "timestamp": timestamp or utc_now(),
+            "level": level,
+            "event": str(event or "pipeline.updated")[:80],
+            "message": cls._safe_log_message(message),
+        }
+        if code:
+            entry["code"] = str(code)[:120]
+        if safe_details:
+            entry["details"] = safe_details
+        return entry
+
+    @staticmethod
+    def _log_push(entry: dict[str, Any]) -> dict[str, Any]:
+        return {"logs": {"$each": [entry], "$slice": -PIPELINE_LOG_LIMIT}}
+
+    @staticmethod
+    def _coerce_link_expiry(value: Any, completed_at: datetime) -> datetime | None:
+        if isinstance(value, datetime):
+            candidate = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            numeric = float(value)
+            if numeric >= 1_000_000_000_000:
+                candidate = datetime.fromtimestamp(numeric / 1000, timezone.utc)
+            elif numeric >= 1_000_000_000:
+                candidate = datetime.fromtimestamp(numeric, timezone.utc)
+            elif numeric > 0:
+                candidate = completed_at + timedelta(seconds=numeric)
+            else:
+                return None
+        elif isinstance(value, str) and value.strip():
+            try:
+                candidate = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            if candidate.tzinfo is None:
+                candidate = candidate.replace(tzinfo=timezone.utc)
+        else:
+            return None
+        return min(candidate.astimezone(timezone.utc), completed_at + PAYMENT_LINK_TTL)
+
+    @classmethod
+    def _link_expiry_from_result(
+        cls,
+        result: dict[str, Any],
+        completed_at: datetime,
+    ) -> datetime:
+        for key in (
+            "linkExpiresAt",
+            "link_expires_at",
+            "qrExpiresAt",
+            "qr_expires_at",
+            "expiresAt",
+            "expires_at",
+        ):
+            candidate = cls._coerce_link_expiry(result.get(key), completed_at)
+            if candidate is not None:
+                return candidate
+        return completed_at + PAYMENT_LINK_TTL
+
+    @staticmethod
+    def _payment_link_expires_at(item: dict[str, Any]) -> datetime | None:
+        explicit = item.get("paymentLinkExpiresAt")
+        if isinstance(explicit, datetime):
+            return explicit if explicit.tzinfo else explicit.replace(tzinfo=timezone.utc)
+        extracted_at = item.get("extractedAt")
+        if isinstance(extracted_at, datetime):
+            extracted_at = extracted_at if extracted_at.tzinfo else extracted_at.replace(tzinfo=timezone.utc)
+            return extracted_at + PAYMENT_LINK_TTL
+        return None
+
+    @classmethod
+    def _payment_link_is_fresh(
+        cls,
+        item: dict[str, Any],
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        expires_at = cls._payment_link_expires_at(item)
+        if expires_at is None or not item.get("paymentLink"):
+            return False
+        return expires_at - (now or utc_now()) > PAYMENT_LINK_MIN_REMAINING
 
     async def _guard(self, awaitable: Any) -> Any:
         try:
@@ -253,6 +432,16 @@ class AccountPipelineService:
             self.items.create_index(
                 [("stage", ASCENDING), ("updatedAt", DESCENDING)],
                 name="pipeline_stage_updated",
+            )
+        )
+        await self._guard(
+            self.items.create_index(
+                [
+                    ("stage", ASCENDING),
+                    ("paidAt", DESCENDING),
+                    ("updatedAt", DESCENDING),
+                ],
+                name="pipeline_stage_paid_desc",
             )
         )
 
@@ -309,6 +498,13 @@ class AccountPipelineService:
             "autoSubmit": bool(document.get("smsReceiverAutoSubmit", False)),
             "baseUrl": str(document.get("smsReceiverBaseUrl") or ""),
             "mailboxPublicBaseUrl": str(document.get("smsReceiverMailboxPublicBaseUrl") or ""),
+            "concurrency": int(document.get("smsReceiverConcurrency") or 3),
+            "failureRetries": int(
+                document.get("smsReceiverFailureRetries")
+                if document.get("smsReceiverFailureRetries") is not None
+                else 1
+            ),
+            "retryBackoffSeconds": int(document.get("smsReceiverRetryBackoffSeconds") or 30),
             "updatedAt": document.get("smsReceiverUpdatedAt"),
         }
 
@@ -329,6 +525,9 @@ class AccountPipelineService:
                         "smsReceiverAutoSubmit": payload.autoSubmit,
                         "smsReceiverBaseUrl": payload.baseUrl,
                         "smsReceiverMailboxPublicBaseUrl": payload.mailboxPublicBaseUrl,
+                        "smsReceiverConcurrency": payload.concurrency,
+                        "smsReceiverFailureRetries": payload.failureRetries,
+                        "smsReceiverRetryBackoffSeconds": payload.retryBackoffSeconds,
                         "smsReceiverUpdatedAt": now,
                     }
                 },
@@ -342,12 +541,56 @@ class AccountPipelineService:
         return base_url.rstrip("/") + "/" + path.lstrip("/")
 
     @staticmethod
-    def _public_mailbox_url(access_url: str, public_base_url: str) -> str:
+    def _sms_receiver_retryable_status(status_code: int) -> bool:
+        # 409 means the receiver already owns an active global pipeline.  A
+        # timed retry inside the same request only repeats the conflict; the
+        # auto-submit queue handles it after that pipeline finishes.
+        return status_code in {408, 425, 429} or status_code >= 500
+
+    async def _sms_receiver_request_with_retry(
+        self,
+        client: httpx.AsyncClient,
+        semaphore: asyncio.Semaphore,
+        method: str,
+        url: str,
+        *,
+        json_body: dict[str, Any],
+        retry_limit: int,
+        retry_backoff_seconds: int,
+    ) -> tuple[httpx.Response, int]:
+        attempts = max(1, retry_limit + 1)
+        for attempt in range(1, attempts + 1):
+            try:
+                async with semaphore:
+                    response = await client.request(method, url, json=json_body)
+                response.raise_for_status()
+                return response, attempt
+            except httpx.HTTPStatusError as exc:
+                if (
+                    attempt >= attempts
+                    or not self._sms_receiver_retryable_status(exc.response.status_code)
+                ):
+                    raise
+            except httpx.RequestError:
+                if attempt >= attempts:
+                    raise
+            await asyncio.sleep(retry_backoff_seconds * attempt)
+        raise RuntimeError("sms receiver retry loop exhausted")
+
+    @staticmethod
+    def _public_mailbox_url(
+        access_url: str,
+        public_base_url: str,
+        receiver_base_url: str = "",
+    ) -> str:
         parsed = urlsplit(access_url.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise PipelineServiceError("mailbox_url_invalid", "成品接码 URL 格式无效")
         is_local = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
         if not is_local:
+            return access_url.strip()
+        receiver = urlsplit(receiver_base_url.strip()) if receiver_base_url else None
+        if receiver is not None and receiver.hostname in {"127.0.0.1", "localhost", "::1"}:
             return access_url.strip()
         if not public_base_url:
             raise PipelineServiceError(
@@ -381,6 +624,218 @@ class AccountPipelineService:
             "baseUrl": base_url,
         }
 
+    @staticmethod
+    def _sms_receiver_error(response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, str) and error.strip():
+                return error.strip()
+            detail = payload.get("detail")
+            if isinstance(detail, str) and detail.strip():
+                return detail.strip()
+        return f"接码机返回 HTTP {response.status_code}"
+
+    async def _sms_receiver_json_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        settings = await self.sms_receiver_settings()
+        base_url = str(settings.get("baseUrl") or "")
+        if not base_url:
+            raise PipelineServiceError(
+                "sms_receiver_base_url_required",
+                "请先填写接码机服务器 API 地址",
+            )
+        try:
+            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+                response = await client.request(
+                    method,
+                    self._sms_receiver_endpoint(base_url, path),
+                    json=json_body,
+                )
+        except httpx.RequestError as exc:
+            raise PipelineServiceError(
+                "sms_receiver_unreachable",
+                f"接码机服务器连接失败：{type(exc).__name__}",
+                502,
+            ) from exc
+        if response.is_error:
+            raise PipelineServiceError(
+                "sms_receiver_upstream_error",
+                self._sms_receiver_error(response),
+                response.status_code,
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise PipelineServiceError(
+                "sms_receiver_invalid_response",
+                "接码机返回了无效 JSON",
+                502,
+            ) from exc
+        if not isinstance(payload, dict):
+            raise PipelineServiceError(
+                "sms_receiver_invalid_response",
+                "接码机返回了无效 JSON",
+                502,
+            )
+        if payload.get("ok") is False:
+            error = payload.get("error")
+            raise PipelineServiceError(
+                "sms_receiver_upstream_error",
+                str(error or "接码机请求失败"),
+                502,
+            )
+        return payload
+
+    @staticmethod
+    def _sms_receiver_hero_config(payload: dict[str, Any]) -> dict[str, Any]:
+        config = (
+            payload.get("config")
+            if isinstance(payload.get("config"), dict)
+            else payload
+        )
+        raw_countries = config.get("countries")
+        if not isinstance(raw_countries, list):
+            raw_country = config.get("country")
+            raw_countries = [raw_country] if raw_country not in {None, ""} else []
+        try:
+            country_ids = list(
+                dict.fromkeys(int(str(value).strip()) for value in raw_countries)
+            )
+            min_price = (
+                float(config.get("min_price"))
+                if config.get("min_price") not in {None, ""}
+                else None
+            )
+            max_price = float(config.get("max_price") or 0)
+            preferred_price = (
+                float(config.get("preferred_price"))
+                if config.get("preferred_price") not in {None, ""}
+                else None
+            )
+            max_retries = int(config.get("max_retries") or 0)
+            code_wait = int(config.get("code_wait") or 0)
+            email_otp_wait = int(config.get("email_otp_wait") or 90)
+            email_otp_poll = int(config.get("email_otp_poll_interval") or 3)
+            email_otp_attempts = int(config.get("email_otp_attempts") or 1)
+        except (TypeError, ValueError) as exc:
+            raise PipelineServiceError(
+                "sms_receiver_invalid_response",
+                "接码机 HeroSMS 配置格式无效",
+                502,
+            ) from exc
+        credentials = config.get("credentials_configured")
+        configured = bool(config.get("credential_configured"))
+        if isinstance(credentials, dict):
+            configured = bool(credentials.get("hero", configured))
+        acquire_priority = str(config.get("acquire_priority") or "country").strip().lower()
+        if acquire_priority not in {"country", "price", "price_high"}:
+            acquire_priority = "country"
+        return {
+            "countryIds": country_ids,
+            "minPrice": min_price if min_price is not None and min_price > 0 else None,
+            "maxPrice": max_price,
+            "preferredPrice": (
+                preferred_price
+                if preferred_price is not None and preferred_price > 0
+                else None
+            ),
+            "acquirePriority": acquire_priority,
+            "maxRetries": max_retries,
+            "codeWaitSeconds": code_wait,
+            "emailOtpWaitSeconds": email_otp_wait,
+            "emailOtpPollIntervalSeconds": email_otp_poll,
+            "emailOtpAttempts": email_otp_attempts,
+            "reuseEnabled": bool(config.get("reuse_enabled")),
+            "credentialConfigured": configured,
+        }
+
+    async def sms_receiver_hero_sms_settings(self) -> dict[str, Any]:
+        payload = await self._sms_receiver_json_request("GET", "/api/sms-config")
+        return self._sms_receiver_hero_config(payload)
+
+    async def update_sms_receiver_hero_sms_settings(
+        self, payload: SmsReceiverHeroSmsSettingsUpdate
+    ) -> dict[str, Any]:
+        if len(payload.apiKey) > 4096 or any(ord(char) < 32 for char in payload.apiKey):
+            raise PipelineServiceError(
+                "sms_receiver_hero_api_key_invalid",
+                "HeroSMS API Key 格式无效",
+            )
+        upstream: dict[str, Any] = {
+            "provider": "hero",
+            "countries": [str(country_id) for country_id in payload.countryIds],
+            "service": "dr",
+            "min_price": payload.minPrice,
+            "max_price": payload.maxPrice,
+            "preferred_price": payload.preferredPrice,
+            "acquire_priority": payload.acquirePriority,
+            "max_retries": payload.maxRetries,
+            "code_wait": payload.codeWaitSeconds,
+            "email_otp_wait": payload.emailOtpWaitSeconds,
+            "email_otp_poll_interval": payload.emailOtpPollIntervalSeconds,
+            "email_otp_attempts": payload.emailOtpAttempts,
+            "reuse_enabled": payload.reuseEnabled,
+        }
+        if payload.apiKey:
+            upstream["credential"] = payload.apiKey
+        result = await self._sms_receiver_json_request(
+            "POST", "/api/sms-config", json_body=upstream
+        )
+        return self._sms_receiver_hero_config(result)
+
+    @classmethod
+    def _without_api_keys(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            return [cls._without_api_keys(item) for item in value]
+        if not isinstance(value, dict):
+            return value
+        safe: dict[str, Any] = {}
+        for key, item in value.items():
+            normalized = re.sub(r"[^a-z0-9]", "", str(key).casefold())
+            if normalized in {"apikey", "herosmsapikey", "credential"}:
+                continue
+            safe[str(key)] = cls._without_api_keys(item)
+        return safe
+
+    async def sms_receiver_hero_sms_catalog(self) -> dict[str, Any]:
+        payload = await self._sms_receiver_json_request("GET", "/api/hero-sms/catalog")
+        return self._without_api_keys(payload)
+
+    @staticmethod
+    def _sms_receiver_totp_secret(value: Any) -> str:
+        secret = re.sub(r"[\s-]+", "", str(value or "")).upper()
+        if not secret or not re.fullmatch(r"[A-Z2-7]+=*", secret):
+            raise PipelineServiceError(
+                "sms_receiver_material_invalid",
+                "已跳过：2FA 密钥不是有效的 Base32 TOTP 密钥",
+            )
+        try:
+            padding = "=" * (-len(secret.rstrip("=")) % 8)
+            decoded = base64.b32decode(
+                secret.rstrip("=") + padding,
+                casefold=True,
+            )
+        except (binascii.Error, ValueError, TypeError) as exc:
+            raise PipelineServiceError(
+                "sms_receiver_material_invalid",
+                "已跳过：2FA 密钥不是有效的 Base32 TOTP 密钥",
+            ) from exc
+        if len(decoded) < 10:
+            raise PipelineServiceError(
+                "sms_receiver_material_invalid",
+                "已跳过：2FA 密钥长度不足",
+            )
+        return secret.rstrip("=")
+
     async def _sms_receiver_documents(
         self, ids: list[str]
     ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -394,7 +849,12 @@ class AccountPipelineService:
         accounts = await self._guard(
             self.resources.accounts.find(
                 {"_id": {"$in": account_ids}},
-                {"email": 1, "emailAccessUrl": 1},
+                {
+                    "email": 1,
+                    "chatgptPassword": 1,
+                    "totpSecret": 1,
+                    "emailAccessUrl": 1,
+                },
             ).to_list(length=100)
         )
         account_map = {str(item.get("_id") or ""): item for item in accounts}
@@ -410,9 +870,14 @@ class AccountPipelineService:
         if not settings.get("enabled") or not settings.get("baseUrl"):
             raise PipelineServiceError("sms_receiver_disabled", "请先保存并启用接码机服务器配置")
         documents = await self._sms_receiver_documents(payload.ids)
-        semaphore = asyncio.Semaphore(3)
+        concurrency = max(1, min(10, int(settings.get("concurrency") or 3)))
+        retry_limit = max(0, min(3, int(settings.get("failureRetries") or 0)))
+        retry_backoff_seconds = max(
+            5,
+            min(600, int(settings.get("retryBackoffSeconds") or 30)),
+        )
+        semaphore = asyncio.Semaphore(concurrency)
         base_url = str(settings["baseUrl"])
-        public_base = str(settings.get("mailboxPublicBaseUrl") or "")
 
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             async def submit_one(
@@ -420,26 +885,73 @@ class AccountPipelineService:
             ) -> dict[str, Any]:
                 item_id = str(item.get("_id") or "")
                 email = str(item.get("email") or account.get("email") or "").strip()
+                password = str(account.get("chatgptPassword") or "")
                 now = utc_now()
                 try:
-                    access_url = direct_mailbox_access_url(
-                        str(account.get("emailAccessUrl") or ""), email
+                    if not email or len(email) > 320 or "@" not in email:
+                        raise PipelineServiceError(
+                            "sms_receiver_material_invalid",
+                            "已跳过：账号邮箱格式不受支持",
+                        )
+                    if "|" in email or re.search(r"[\x00-\x1f\x7f]", email):
+                        raise PipelineServiceError(
+                            "sms_receiver_material_invalid",
+                            "已跳过：账号邮箱格式不受支持",
+                        )
+                    if not password.strip():
+                        raise PipelineServiceError(
+                            "sms_receiver_material_missing",
+                            "已跳过：缺少 ChatGPT 密码",
+                        )
+                    if "\r" in password or "\n" in password:
+                        raise PipelineServiceError(
+                            "sms_receiver_material_invalid",
+                            "已跳过：密码包含不支持的换行符",
+                        )
+                    raw_totp_secret = str(account.get("totpSecret") or "")
+                    if not raw_totp_secret.strip():
+                        raise PipelineServiceError(
+                            "sms_receiver_material_missing",
+                            "已跳过：缺少 2FA 密钥",
+                        )
+                    if "\r" in raw_totp_secret or "\n" in raw_totp_secret:
+                        raise PipelineServiceError(
+                            "sms_receiver_material_invalid",
+                            "已跳过：2FA 密钥格式不受支持",
+                        )
+                    totp_secret = self._sms_receiver_totp_secret(
+                        raw_totp_secret
                     )
-                    public_url = self._public_mailbox_url(access_url, public_base)
-                    async with semaphore:
-                        imported = await client.post(
-                            self._sms_receiver_endpoint(base_url, "/api/accounts/import"),
-                            json={"source": "code_url", "text": f"{email}----{public_url}"},
+                    imported, import_attempts = await self._sms_receiver_request_with_retry(
+                        client,
+                        semaphore,
+                        "POST",
+                        self._sms_receiver_endpoint(base_url, "/api/accounts/import"),
+                        json_body={
+                            "source": "password_totp",
+                            "text": f"{email}|{password}|{totp_secret}",
+                        },
+                        retry_limit=retry_limit,
+                        retry_backoff_seconds=retry_backoff_seconds,
+                    )
+                    import_result = imported.json()
+                    if not isinstance(import_result, dict) or import_result.get("ok") is False:
+                        raise PipelineServiceError(
+                            "sms_receiver_import_failed",
+                            "接码机未接受账号素材",
                         )
-                        imported.raise_for_status()
-                        response = await client.post(
-                            self._sms_receiver_endpoint(
-                                base_url, "/api/v1/integration/accounts/submit"
-                            ),
-                            json={"email": email},
-                        )
-                        response.raise_for_status()
-                        result = response.json()
+                    response, submit_attempts = await self._sms_receiver_request_with_retry(
+                        client,
+                        semaphore,
+                        "POST",
+                        self._sms_receiver_endpoint(
+                            base_url, "/api/v1/integration/accounts/submit"
+                        ),
+                        json_body={"email": email},
+                        retry_limit=retry_limit,
+                        retry_backoff_seconds=retry_backoff_seconds,
+                    )
+                    result = response.json()
                     account_status = result.get("account") if isinstance(result, dict) else {}
                     account_status = account_status if isinstance(account_status, dict) else {}
                     task = account_status.get("task") if isinstance(account_status.get("task"), dict) else {}
@@ -450,18 +962,27 @@ class AccountPipelineService:
                         "smsReceiverTaskId": str(task.get("id") or "") or None,
                         "smsReceiverSubmittedAt": now,
                         "smsReceiverUpdatedAt": now,
+                        "smsReceiverRetryCount": max(0, import_attempts - 1)
+                        + max(0, submit_attempts - 1),
                         "smsReceiverError": None,
-                        "smsReceiverMailboxUrl": public_url,
+                        "smsReceiverMailboxUrl": None,
                         "updatedAt": now,
                     }
                     await self._guard(self.items.update_one({"_id": item_id}, {"$set": updates}))
                     return {"id": item_id, "ok": True, "state": updates["smsReceiverState"]}
                 except PipelineServiceError as exc:
                     error = exc.message
+                    state = (
+                        "skipped"
+                        if exc.code.startswith("sms_receiver_material_")
+                        else "failed"
+                    )
                 except httpx.HTTPStatusError as exc:
-                    error = f"接码机返回 HTTP {exc.response.status_code}"
+                    error = self._sms_receiver_error(exc.response)
+                    state = "failed"
                 except (httpx.HTTPError, ValueError) as exc:
                     error = f"接码机连接失败：{type(exc).__name__}"
+                    state = "failed"
                 await self._guard(
                     self.items.update_one(
                         {"_id": item_id},
@@ -475,7 +996,7 @@ class AccountPipelineService:
                         },
                     )
                 )
-                return {"id": item_id, "ok": False, "state": "failed", "error": error[:300]}
+                return {"id": item_id, "ok": False, "state": state, "error": error[:300]}
 
             results = await asyncio.gather(
                 *(submit_one(item, account) for item, account in documents)
@@ -484,7 +1005,11 @@ class AccountPipelineService:
             "requested": len(payload.ids),
             "processed": len(results),
             "submitted": sum(bool(item["ok"]) for item in results),
-            "failed": sum(not bool(item["ok"]) for item in results),
+            "skipped": sum(item.get("state") == "skipped" for item in results),
+            "failed": sum(
+                not bool(item["ok"]) and item.get("state") != "skipped"
+                for item in results
+            ),
             "items": results,
         }
 
@@ -528,7 +1053,7 @@ class AccountPipelineService:
                     await self._guard(self.items.update_one({"_id": item_id}, {"$set": updates}))
                     return {"id": item_id, "ok": True, "state": state}
                 except httpx.HTTPStatusError as exc:
-                    error = f"接码机返回 HTTP {exc.response.status_code}"
+                    error = self._sms_receiver_error(exc.response)
                 except (httpx.HTTPError, ValueError) as exc:
                     error = f"接码机连接失败：{type(exc).__name__}"
                 await self._guard(
@@ -550,11 +1075,114 @@ class AccountPipelineService:
             "items": results,
         }
 
-    async def _auto_submit_paid_to_sms_receiver(self, item_id: str) -> None:
+    async def _reconcile_sms_receiver_states(self) -> None:
+        """Refresh non-terminal receiver jobs so the paid list never stays stale."""
         try:
             settings = await self.sms_receiver_settings()
-            if settings.get("enabled") and settings.get("autoSubmit"):
+            if not settings.get("enabled") or not settings.get("baseUrl"):
+                return
+            cursor = self.items.find(
+                {
+                    "stage": "paid",
+                    "smsReceiverState": {
+                        "$in": ["queued", "running", "retry_wait", "paused"]
+                    },
+                },
+                {"_id": 1},
+            )
+            items = await self._guard(cursor.to_list(length=100))
+            if not items:
+                return
+            await self.refresh_sms_receiver_status(
+                SmsReceiverBatchInput(ids=[str(item["_id"]) for item in items])
+            )
+        except Exception:
+            return
+
+    async def _auto_submit_paid_to_sms_receiver(self, item_id: str) -> None:
+        try:
+            async with self._sms_receiver_submit_lock:
+                settings = await self.sms_receiver_settings()
+                if not settings.get("enabled") or not settings.get("autoSubmit"):
+                    return
+                item = await self._guard(self.items.find_one({"_id": item_id, "stage": "paid"}))
+                if not item or item.get("mailConfirmationStatus") != "confirmed":
+                    return
+                if item.get("smsReceiverState") in {"queued", "running", "ready", "completed"}:
+                    return
+                documents = await self._sms_receiver_documents([item_id])
+                if not documents:
+                    return
+                _, account = documents[0]
+                if not str(account.get("chatgptPassword") or "").strip():
+                    return
+                if not str(account.get("totpSecret") or "").strip():
+                    return
+
+                base_url = str(settings.get("baseUrl") or "")
+                if base_url:
+                    try:
+                        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                            response = await client.get(
+                                self._sms_receiver_endpoint(base_url, "/api/overview")
+                            )
+                            response.raise_for_status()
+                            overview = response.json()
+                        pipeline = overview.get("pipeline") if isinstance(overview, dict) else {}
+                        if isinstance(pipeline, dict) and pipeline.get("active"):
+                            now = utc_now()
+                            await self._guard(
+                                self.items.update_one(
+                                    {"_id": item_id},
+                                    {
+                                        "$set": {
+                                            "smsReceiverState": "waiting",
+                                            "smsReceiverError": "等待接码机当前流水线完成",
+                                            "smsReceiverUpdatedAt": now,
+                                            "updatedAt": now,
+                                        }
+                                    },
+                                )
+                            )
+                            return
+                    except (httpx.HTTPError, ValueError):
+                        # Let the normal submit path return the detailed
+                        # receiver/network error for this item.
+                        pass
                 await self.submit_paid_to_sms_receiver(SmsReceiverBatchInput(ids=[item_id]))
+        except Exception:
+            return
+
+    async def _auto_submit_confirmed_paid_to_sms_receiver(self) -> None:
+        try:
+            settings = await self.sms_receiver_settings()
+            if not settings.get("enabled") or not settings.get("autoSubmit"):
+                return
+            cursor = self.items.find(
+                {
+                    "stage": "paid",
+                    "mailConfirmationStatus": "confirmed",
+                    "$or": [
+                        {"smsReceiverState": {"$exists": False}},
+                        {"smsReceiverState": {"$in": [None, "", "idle", "waiting"]}},
+                        {
+                            "smsReceiverState": "failed",
+                            "smsReceiverError": {
+                                "$in": [
+                                    "接码机返回 HTTP 409",
+                                    "已有流水线正在运行",
+                                    "RuntimeError: 已有流水线正在运行",
+                                ]
+                            },
+                        },
+                    ],
+                },
+                {"_id": 1},
+            )
+            items = await self._guard(cursor.to_list(length=100))
+            await asyncio.gather(
+                *(self._auto_submit_paid_to_sms_receiver(str(item["_id"])) for item in items)
+            )
         except Exception:
             return
 
@@ -569,12 +1197,12 @@ class AccountPipelineService:
             "extractionFailureRetries": int(
                 document.get("extractionFailureRetries")
                 if document.get("extractionFailureRetries") is not None
-                else 2
+                else 0
             ),
             "paymentFailureRetries": int(
                 document.get("paymentFailureRetries")
                 if document.get("paymentFailureRetries") is not None
-                else 2
+                else 0
             ),
             "country": country,
             "checkoutProxy": str(document.get("checkoutProxy") or ""),
@@ -698,6 +1326,13 @@ class AccountPipelineService:
                             "extractionRetryCount": 0,
                             "paymentStatus": "pending",
                             "paymentRetryCount": 0,
+                            "logs": [
+                                self._log_entry(
+                                    "pipeline.eligible",
+                                    "账号已进入自动流水线",
+                                    timestamp=now,
+                                )
+                            ],
                             "createdAt": now,
                             "updatedAt": now,
                         },
@@ -752,9 +1387,20 @@ class AccountPipelineService:
         if query.strip():
             mongo_query["email"] = {"$regex": re.escape(query.strip()), "$options": "i"}
         total = await self._guard(self.items.count_documents(mongo_query))
+        sort_spec: list[tuple[str, int]]
+        if stage == "paid":
+            # 成品管理按支付成功时间排序；updatedAt 只用于同一支付时间的稳定次序，
+            # 也让历史记录缺少 paidAt 时仍保持可预测的顺序。
+            sort_spec = [
+                ("paidAt", DESCENDING),
+                ("updatedAt", DESCENDING),
+                ("_id", DESCENDING),
+            ]
+        else:
+            sort_spec = [("updatedAt", DESCENDING), ("_id", DESCENDING)]
         cursor = (
-            self.items.find(mongo_query, {"paymentDeviceId": 0})
-            .sort("updatedAt", DESCENDING)
+            self.items.find(mongo_query, {"paymentDeviceId": 0, "logs": 0})
+            .sort(sort_spec)
             .skip((page - 1) * page_size)
             .limit(page_size)
         )
@@ -785,6 +1431,143 @@ class AccountPipelineService:
             "page": page,
             "pageSize": page_size,
             "counts": counts,
+        }
+
+    async def item_logs(self, item_id: str) -> dict[str, Any]:
+        item = await self._guard(
+            self.items.find_one(
+                {"_id": item_id},
+                {
+                    "email": 1,
+                    "stage": 1,
+                    "logs": 1,
+                    "createdAt": 1,
+                    "updatedAt": 1,
+                    "extractedAt": 1,
+                    "paymentStartedAt": 1,
+                    "paidAt": 1,
+                    "extractionError": 1,
+                    "paymentError": 1,
+                    "extractionRetryCount": 1,
+                    "paymentRetryCount": 1,
+                },
+            )
+        )
+        if not item:
+            raise ResourceNotFoundError("流水线记录不存在")
+
+        entries = [
+            dict(entry)
+            for entry in item.get("logs", [])
+            if isinstance(entry, dict)
+        ]
+        events = {str(entry.get("event") or "") for entry in entries}
+
+        def add_legacy(
+            event: str,
+            message: Any,
+            *,
+            timestamp: Any,
+            level: Literal["info", "success", "warning", "error"] = "info",
+            code: str = "",
+            details: dict[str, Any] | None = None,
+        ) -> None:
+            if event in events or not isinstance(timestamp, datetime):
+                return
+            entry = self._log_entry(
+                event,
+                message,
+                timestamp=timestamp,
+                level=level,
+                code=code,
+                details=details,
+            )
+            entry["id"] = f"legacy-{event}"
+            entries.append(entry)
+            events.add(event)
+
+        add_legacy(
+            "pipeline.eligible",
+            "账号已进入自动流水线",
+            timestamp=item.get("createdAt"),
+        )
+        add_legacy(
+            "extraction.succeeded",
+            "提链成功，已生成支付链接",
+            timestamp=item.get("extractedAt"),
+            level="success",
+        )
+        extraction_error = item.get("extractionError") if isinstance(item.get("extractionError"), dict) else {}
+        if extraction_error:
+            add_legacy(
+                "extraction.failed",
+                extraction_error.get("message") or "提链失败",
+                timestamp=item.get("updatedAt"),
+                level="error",
+                code=str(extraction_error.get("code") or "extraction_failed"),
+                details={"retryCount": int(item.get("extractionRetryCount") or 0)},
+            )
+        add_legacy(
+            "payment.started",
+            "协议支付任务已启动",
+            timestamp=item.get("paymentStartedAt"),
+        )
+        payment_error = item.get("paymentError") if isinstance(item.get("paymentError"), dict) else {}
+        if payment_error:
+            add_legacy(
+                "payment.failed",
+                payment_error.get("message") or "支付失败",
+                timestamp=item.get("updatedAt"),
+                level="error",
+                code=str(payment_error.get("code") or "payment_failed"),
+                details={"retryCount": int(item.get("paymentRetryCount") or 0)},
+            )
+        add_legacy(
+            "payment.succeeded",
+            "协议支付已完成",
+            timestamp=item.get("paidAt"),
+            level="success",
+        )
+
+        public_entries = []
+        for entry in entries[-PIPELINE_LOG_LIMIT:]:
+            timestamp = entry.get("timestamp")
+            safe_details: dict[str, Any] = {}
+            if isinstance(entry.get("details"), dict):
+                for key, value in entry["details"].items():
+                    if isinstance(value, str):
+                        safe_details[str(key)[:64]] = self._safe_log_message(value)
+                    elif isinstance(value, (int, float, bool)) or value is None:
+                        safe_details[str(key)[:64]] = value
+            public_entries.append(
+                {
+                    "id": str(entry.get("id") or uuid.uuid4().hex),
+                    "timestamp": timestamp,
+                    "level": str(entry.get("level") or "info"),
+                    "event": str(entry.get("event") or "pipeline.updated"),
+                    "message": self._safe_log_message(entry.get("message")),
+                    "code": str(entry.get("code") or "") or None,
+                    "details": safe_details,
+                }
+            )
+        def sort_timestamp(entry: dict[str, Any]) -> float:
+            value = entry.get("timestamp")
+            if isinstance(value, datetime):
+                value = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+                return value.timestamp()
+            if isinstance(value, str):
+                try:
+                    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+                except ValueError:
+                    return 0.0
+            return 0.0
+
+        public_entries.sort(key=sort_timestamp, reverse=True)
+        return {
+            "itemId": str(item.get("_id") or item_id),
+            "email": str(item.get("email") or ""),
+            "stage": str(item.get("stage") or "eligible"),
+            "logs": public_entries,
         }
 
     async def paid_stats(self, *, days: int = 14) -> dict[str, Any]:
@@ -840,20 +1623,224 @@ class AccountPipelineService:
             ],
         }
 
-    async def export_paid(self, payload: PipelinePaidExportInput) -> dict[str, Any]:
-        query: dict[str, Any] = {"stage": "paid"}
-        if payload.ids:
-            query["_id"] = {"$in": payload.ids}
-        if payload.query:
-            query["email"] = {"$regex": re.escape(payload.query), "$options": "i"}
-        if payload.exportState == "exported":
-            query["exportCount"] = {"$gt": 0}
-        elif payload.exportState == "unexported":
-            query["$or"] = [{"exportCount": {"$exists": False}}, {"exportCount": 0}]
-        cursor = self.items.find(query, {"accountId": 1, "email": 1, "paidAt": 1}).sort(
-            "paidAt", DESCENDING
+    async def _mark_paid_exported(self, exported_ids: list[str]) -> None:
+        if not exported_ids:
+            return
+        now = utc_now()
+        await self._guard(
+            self.items.update_many(
+                {
+                    "_id": {"$in": exported_ids},
+                    "$or": [
+                        {"exportCount": {"$exists": False}},
+                        {"exportCount": 0},
+                    ],
+                },
+                {"$set": {"firstExportedAt": now}},
+            )
         )
-        documents = await self._guard(cursor.to_list(length=None))
+        await self._guard(
+            self.items.update_many(
+                {"_id": {"$in": exported_ids}},
+                {
+                    "$inc": {"exportCount": 1},
+                    "$set": {"lastExportedAt": now, "updatedAt": now},
+                },
+            )
+        )
+
+    @staticmethod
+    def _download_filename(content_disposition: str, fallback: str) -> str:
+        encoded = re.search(
+            r"filename\*\s*=\s*(?:UTF-8'')?([^;]+)",
+            content_disposition,
+            flags=re.IGNORECASE,
+        )
+        regular = re.search(
+            r'filename\s*=\s*(?:"([^"]+)"|([^;]+))',
+            content_disposition,
+            flags=re.IGNORECASE,
+        )
+        value = ""
+        if encoded:
+            value = unquote(encoded.group(1).strip().strip('"'))
+        elif regular:
+            value = (regular.group(1) or regular.group(2) or "").strip()
+        value = value.replace("\\", "/").rsplit("/", 1)[-1].strip()
+        if not value or any(ord(char) < 32 for char in value):
+            return fallback
+        return value[:240]
+
+    async def _export_paid_receiver_credentials(
+        self,
+        payload: PipelinePaidExportInput,
+        documents: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        inventory = await self._sms_receiver_json_request("GET", "/api/accounts")
+        account_rows = inventory.get("accounts")
+        if not isinstance(account_rows, list):
+            raise PipelineServiceError(
+                "sms_receiver_invalid_response",
+                "接码机账号列表格式无效",
+                502,
+            )
+        receiver_by_email: dict[str, dict[str, Any]] = {}
+        for row in account_rows:
+            if not isinstance(row, dict) or row.get("has_credential") is not True:
+                continue
+            email = str(row.get("email") or "").strip().casefold()
+            receiver_id = str(row.get("id") or "").strip()
+            if email and receiver_id and email not in receiver_by_email:
+                receiver_by_email[email] = row
+
+        selected: list[tuple[str, str]] = []
+        skipped = 0
+        for item in documents:
+            email = str(item.get("email") or "").strip().casefold()
+            receiver = receiver_by_email.get(email)
+            if not receiver:
+                skipped += 1
+                continue
+            selected.append((str(item.get("_id") or ""), str(receiver["id"])))
+        if len(selected) > 500:
+            raise PipelineServiceError(
+                "sms_receiver_export_limit",
+                "接码机每次最多导出 500 个账号，请分批选择",
+                413,
+            )
+
+        default_filename = (
+            "paid-accounts-sub2api.json"
+            if payload.format == "sub2api"
+            else "paid-accounts-codex-json.zip"
+        )
+        default_mime = (
+            "application/json" if payload.format == "sub2api" else "application/zip"
+        )
+        if not selected:
+            return {
+                "content": "",
+                "contentBase64": "",
+                "encoding": "base64",
+                "mimeType": default_mime,
+                "filename": default_filename,
+                "format": payload.format,
+                "count": 0,
+                "skippedMissingCredentialCount": skipped,
+            }
+
+        settings = await self.sms_receiver_settings()
+        base_url = str(settings.get("baseUrl") or "")
+        if not base_url:
+            raise PipelineServiceError(
+                "sms_receiver_base_url_required",
+                "请先填写接码机服务器 API 地址",
+            )
+        receiver_ids = list(dict.fromkeys(receiver_id for _, receiver_id in selected))
+        try:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                response = await client.post(
+                    self._sms_receiver_endpoint(base_url, "/api/seller/export"),
+                    json={
+                        "confirmed": True,
+                        "account_ids": receiver_ids,
+                        "formats": [payload.format],
+                    },
+                )
+        except httpx.RequestError as exc:
+            raise PipelineServiceError(
+                "sms_receiver_unreachable",
+                f"接码机服务器连接失败：{type(exc).__name__}",
+                502,
+            ) from exc
+        if response.is_error:
+            raise PipelineServiceError(
+                "sms_receiver_upstream_error",
+                self._sms_receiver_error(response),
+                response.status_code,
+            )
+
+        exported_ids = [item_id for item_id, _ in selected if item_id]
+        await self._mark_paid_exported(exported_ids)
+        mime_type = (
+            response.headers.get("content-type", default_mime)
+            .split(";", 1)[0]
+            .strip()
+        )
+        filename = self._download_filename(
+            response.headers.get("content-disposition", ""), default_filename
+        )
+        return {
+            "content": "",
+            "contentBase64": base64.b64encode(response.content).decode("ascii"),
+            "encoding": "base64",
+            "mimeType": mime_type or default_mime,
+            "filename": filename,
+            "format": payload.format,
+            "count": len(exported_ids),
+            "skippedMissingCredentialCount": skipped,
+        }
+
+    async def _export_paid_password_totp(
+        self,
+        documents: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        account_ids = list(
+            dict.fromkeys(
+                str(item.get("accountId") or "")
+                for item in documents
+                if item.get("accountId")
+            )
+        )
+        account_cursor = self.resources.accounts.find(
+            {"_id": {"$in": account_ids}},
+            {
+                "email": 1,
+                "chatgptPassword": 1,
+                "totpSecret": 1,
+            },
+        )
+        accounts = await self._guard(account_cursor.to_list(length=None))
+        accounts_by_id = {
+            str(account.get("_id") or ""): account for account in accounts
+        }
+
+        lines: list[str] = []
+        exported_ids: list[str] = []
+        skipped_missing_security = 0
+        for item in documents:
+            account = accounts_by_id.get(str(item.get("accountId") or ""), {})
+            email = str(item.get("email") or account.get("email") or "").strip()
+            password = str(account.get("chatgptPassword") or "")
+            totp_secret = str(account.get("totpSecret") or "").strip()
+            if not email or not password.strip() or not totp_secret:
+                skipped_missing_security += 1
+                continue
+            lines.append(f"{email}----{password}----{totp_secret}")
+            exported_ids.append(str(item.get("_id") or ""))
+
+        await self._mark_paid_exported(exported_ids)
+        timestamp = utc_now().astimezone(JST).strftime("%Y%m%d-%H%M%S")
+        return {
+            "content": "\n".join(lines),
+            "contentBase64": None,
+            "encoding": "utf-8",
+            "mimeType": "text/plain",
+            "format": "password_totp",
+            "filename": f"paid-accounts-{len(lines)}-password-totp-{timestamp}.txt",
+            "count": len(lines),
+            "skippedMissingSecurityCount": skipped_missing_security,
+        }
+
+    async def _export_paid_single_format(
+        self,
+        payload: PipelinePaidExportInput,
+        documents: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        if payload.format == "password_totp":
+            return await self._export_paid_password_totp(documents)
+        if payload.format != "original":
+            return await self._export_paid_receiver_credentials(payload, documents)
         account_ids = [str(item.get("accountId") or "") for item in documents]
         account_cursor = self.resources.accounts.find(
             {"_id": {"$in": account_ids}},
@@ -878,35 +1865,63 @@ class AccountPipelineService:
                 continue
             lines.append(f"{email}----{access_url}")
             exported_ids.append(str(item.get("_id") or ""))
-        now = utc_now()
-        if exported_ids:
-            await self._guard(
-                self.items.update_many(
-                    {
-                        "_id": {"$in": exported_ids},
-                        "$or": [
-                            {"exportCount": {"$exists": False}},
-                            {"exportCount": 0},
-                        ],
-                    },
-                    {"$set": {"firstExportedAt": now}},
-                )
-            )
-            await self._guard(
-                self.items.update_many(
-                    {"_id": {"$in": exported_ids}},
-                    {
-                        "$inc": {"exportCount": 1},
-                        "$set": {"lastExportedAt": now, "updatedAt": now},
-                    },
-                )
-            )
+        await self._mark_paid_exported(exported_ids)
         timestamp = utc_now().astimezone(JST).strftime("%Y%m%d-%H%M%S")
         return {
             "content": "\n".join(lines),
+            "contentBase64": None,
+            "encoding": "utf-8",
+            "mimeType": "text/plain",
+            "format": "original",
             "filename": f"paid-accounts-{len(lines)}-mail-links-{timestamp}.txt",
             "count": len(lines),
             "skippedMissingUrlCount": skipped_missing_url,
+        }
+
+    async def export_paid(self, payload: PipelinePaidExportInput) -> dict[str, Any]:
+        query: dict[str, Any] = {"stage": "paid"}
+        if payload.ids:
+            query["_id"] = {"$in": payload.ids}
+        if payload.query:
+            query["email"] = {"$regex": re.escape(payload.query), "$options": "i"}
+        if payload.exportState == "exported":
+            query["exportCount"] = {"$gt": 0}
+        elif payload.exportState == "unexported":
+            query["$or"] = [{"exportCount": {"$exists": False}}, {"exportCount": 0}]
+        cursor = self.items.find(query, {"accountId": 1, "email": 1, "paidAt": 1}).sort(
+            "paidAt", DESCENDING
+        )
+        documents = await self._guard(cursor.to_list(length=None))
+
+        if payload.formats is None:
+            return await self._export_paid_single_format(payload, documents)
+
+        exports: list[dict[str, Any]] = []
+        errors: list[dict[str, Any]] = []
+        for export_format in payload.formats:
+            single_payload = payload.model_copy(
+                update={"format": export_format, "formats": None}
+            )
+            try:
+                exports.append(
+                    await self._export_paid_single_format(single_payload, documents)
+                )
+            except PipelineServiceError as exc:
+                errors.append(
+                    {
+                        "format": export_format,
+                        "code": exc.code,
+                        "message": exc.message,
+                        "statusCode": exc.status_code,
+                    }
+                )
+
+        return {
+            "formats": list(payload.formats),
+            "exports": exports,
+            "errors": errors,
+            "artifactCount": len(exports),
+            "failedFormatCount": len(errors),
         }
 
     async def mark_paid_export_status(
@@ -1056,6 +2071,8 @@ class AccountPipelineService:
                     }
             updates["mailConfirmationAttempt"] = 1
             await self._guard(self.items.update_one({"_id": item_id}, {"$set": updates}))
+            if updates["mailConfirmationStatus"] == "confirmed":
+                await self._auto_submit_paid_to_sms_receiver(item_id)
             return {"id": item_id, "status": str(updates["mailConfirmationStatus"])}
 
         results = await asyncio.gather(*(check_one(item) for item in documents))
@@ -1202,6 +2219,8 @@ class AccountPipelineService:
                     {"$set": updates, "$inc": {"mailConfirmationAttempt": 1}},
                 )
             )
+            if updates["mailConfirmationStatus"] == "confirmed":
+                await self._auto_submit_paid_to_sms_receiver(item_id)
 
         await asyncio.gather(*(reconcile_one(item) for item in documents))
 
@@ -1211,6 +2230,11 @@ class AccountPipelineService:
         account: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         account = account or {}
+        link_expires_at = self._payment_link_expires_at(item) if item.get("paymentLink") else None
+        link_remaining_seconds = max(
+            0,
+            int((link_expires_at - utc_now()).total_seconds()),
+        ) if link_expires_at else 0
         return {
             "id": str(item.get("_id") or ""),
             "accountId": str(item.get("accountId") or ""),
@@ -1239,6 +2263,9 @@ class AccountPipelineService:
             "checkoutTypeCheckedAt": item.get("checkoutTypeCheckedAt") or account.get("checkoutTypeCheckedAt"),
             "paymentLink": str(item.get("paymentLink") or ""),
             "paymentLinkConfigured": bool(item.get("paymentLink")),
+            "paymentLinkExpiresAt": link_expires_at,
+            "paymentLinkExpired": bool(item.get("paymentLink")) and link_remaining_seconds <= 0,
+            "paymentLinkRemainingSeconds": link_remaining_seconds,
             "paymentStatus": item.get("paymentStatus", "pending"),
             "paymentRetryCount": int(item.get("paymentRetryCount") or 0),
             "paymentJobId": item.get("paymentJobId"),
@@ -1265,6 +2292,7 @@ class AccountPipelineService:
             "smsReceiverTaskId": item.get("smsReceiverTaskId"),
             "smsReceiverSubmittedAt": item.get("smsReceiverSubmittedAt"),
             "smsReceiverUpdatedAt": item.get("smsReceiverUpdatedAt"),
+            "smsReceiverRetryCount": int(item.get("smsReceiverRetryCount") or 0),
             "smsReceiverError": item.get("smsReceiverError"),
             "heroSmsManaged": bool(item.get("heroSmsActivationId")),
             "heroSmsStatus": item.get("heroSmsStatus"),
@@ -1275,6 +2303,84 @@ class AccountPipelineService:
             "createdAt": item.get("createdAt"),
             "updatedAt": item.get("updatedAt"),
         }
+
+    async def _expire_payment_link(
+        self,
+        item: dict[str, Any],
+        *,
+        now: datetime | None = None,
+    ) -> bool:
+        now = now or utc_now()
+        expires_at = self._payment_link_expires_at(item)
+        if self._payment_link_is_fresh(item, now=now):
+            return False
+        message = "PayPal 链接已超过 15 分钟有效期，已停止并等待手动重新提炼"
+        result = await self._guard(
+            self.items.update_one(
+                {
+                    "_id": item["_id"],
+                    "stage": {"$in": ["payment_ready", "payment_failed"]},
+                },
+                {
+                    "$set": {
+                        "stage": "payment_failed",
+                        "extractionStatus": "succeeded",
+                        "extractionLastLinkExpiredAt": now,
+                        "paymentStatus": "failed",
+                        "paymentJobId": None,
+                        "paymentDeviceId": None,
+                        "paymentLastError": item.get("paymentError"),
+                        "paymentLastRetryCount": int(item.get("paymentRetryCount") or 0),
+                        "paymentError": {
+                            "code": "payment_link_expired",
+                            "message": message,
+                        },
+                        "heroSmsActivationId": None,
+                        "heroSmsStatus": None,
+                        "heroSmsAttempt": 0,
+                        "heroSmsPrice": None,
+                        "heroSmsWaitDeadline": None,
+                        "heroSmsError": None,
+                        "updatedAt": now,
+                    },
+                    "$push": self._log_push(
+                        self._log_entry(
+                            "payment_link.expired",
+                            message,
+                            level="warning",
+                            timestamp=now,
+                            code="payment_link_expired",
+                            details={
+                                "expiredAt": expires_at.isoformat() if expires_at else "unknown",
+                                "previousPaymentRetries": int(item.get("paymentRetryCount") or 0),
+                            },
+                        )
+                    ),
+                },
+            )
+        )
+        return bool(result.modified_count)
+
+    async def _mark_expired_payment_links(self) -> int:
+        now = utc_now()
+        cursor = self.items.find(
+            {
+                "stage": {"$in": ["payment_ready", "payment_failed"]},
+                "extractionStatus": "succeeded",
+                "paymentLink": {"$type": "string", "$ne": ""},
+            }
+        ).sort("extractedAt", ASCENDING)
+        expired = 0
+        for item in await self._guard(cursor.to_list(length=200)):
+            payment_error = item.get("paymentError")
+            if (
+                item.get("stage") == "payment_failed"
+                and isinstance(payment_error, dict)
+                and payment_error.get("code") == "payment_link_expired"
+            ):
+                continue
+            expired += int(await self._expire_payment_link(item, now=now))
+        return expired
 
     async def _queue_failed_retries(self, settings: dict[str, Any]) -> None:
         now = utc_now()
@@ -1299,6 +2405,15 @@ class AccountPipelineService:
                                 "updatedAt": now,
                             },
                             "$inc": {"extractionRetryCount": 1},
+                            "$push": self._log_push(
+                                self._log_entry(
+                                    "extraction.retry_scheduled",
+                                    f"自动安排第 {retry_count + 1} 次提链重试",
+                                    level="warning",
+                                    timestamp=now,
+                                    details={"retryCount": retry_count + 1},
+                                )
+                            ),
                         },
                     )
                 )
@@ -1340,6 +2455,15 @@ class AccountPipelineService:
                             "updatedAt": now,
                         },
                         "$inc": {"paymentRetryCount": 1},
+                        "$push": self._log_push(
+                            self._log_entry(
+                                "payment.retry_scheduled",
+                                f"自动安排第 {retry_count + 1} 次支付重试",
+                                level="warning",
+                                timestamp=now,
+                                details={"retryCount": retry_count + 1},
+                            )
+                        ),
                     },
                 )
             )
@@ -1352,6 +2476,9 @@ class AccountPipelineService:
             await self._reconcile_extractions()
             await self._reconcile_payments()
             await self._reconcile_paid_confirmations()
+            await self._reconcile_sms_receiver_states()
+            await self._auto_submit_confirmed_paid_to_sms_receiver()
+            await self._mark_expired_payment_links()
             settings = await self.settings()
             if not settings["enabled"]:
                 return
@@ -1486,7 +2613,14 @@ class AccountPipelineService:
                             "billingCountry": billing_country,
                             "extractionError": None,
                             "updatedAt": utc_now(),
-                        }
+                        },
+                        "$push": self._log_push(
+                            self._log_entry(
+                                "extraction.started",
+                                "提链任务已启动",
+                                details={"billingCountry": billing_country},
+                            )
+                        ),
                     },
                 )
             )
@@ -1496,6 +2630,7 @@ class AccountPipelineService:
             return False
 
     async def _mark_extraction_failed(self, item_id: str, code: str, message: str) -> None:
+        now = utc_now()
         await self._guard(
             self.items.update_one(
                 {"_id": item_id},
@@ -1504,8 +2639,17 @@ class AccountPipelineService:
                         "stage": "extraction_failed",
                         "extractionStatus": "failed",
                         "extractionError": {"code": code, "message": message[:500]},
-                        "updatedAt": utc_now(),
-                    }
+                        "updatedAt": now,
+                    },
+                    "$push": self._log_push(
+                        self._log_entry(
+                            "extraction.failed",
+                            message or "提链失败",
+                            level="error",
+                            timestamp=now,
+                            code=code,
+                        )
+                    ),
                 },
             )
         )
@@ -1534,11 +2678,20 @@ class AccountPipelineService:
                     await self._mark_extraction_failed(item_id, "paypal_link_missing", "提链成功但没有返回 PayPal BA 链")
                     continue
                 checked_at = utc_now()
+                link_expires_at = self._link_expiry_from_result(result, checked_at)
+                if link_expires_at - checked_at <= PAYMENT_LINK_MIN_REMAINING:
+                    await self._mark_extraction_failed(
+                        item_id,
+                        "payment_link_expired",
+                        "提链服务返回的 PayPal 链接已过期",
+                    )
+                    continue
                 updates: dict[str, Any] = {
                     "stage": "payment_ready",
                     "extractionStatus": "succeeded",
                     "paymentStatus": "pending",
                     "paymentLink": payment_link,
+                    "paymentLinkExpiresAt": link_expires_at,
                     "extractedAt": checked_at,
                     "extractionError": None,
                     "updatedAt": checked_at,
@@ -1557,7 +2710,18 @@ class AccountPipelineService:
                 await self._guard(
                     self.items.update_one(
                         {"_id": item_id},
-                        {"$set": updates},
+                        {
+                            "$set": updates,
+                            "$push": self._log_push(
+                                self._log_entry(
+                                    "extraction.succeeded",
+                                    "提链成功，已生成支付链接",
+                                    level="success",
+                                    timestamp=checked_at,
+                                    details={"checkoutType": checkout_type or "unknown"},
+                                )
+                            ),
+                        },
                     )
                 )
                 if checkout_type:
@@ -1630,6 +2794,8 @@ class AccountPipelineService:
                     f"所选 {country} / {group or '全部分组'} 代理池没有已启用代理",
                     422,
                 )
+            if kind == "protocol" and len(urls) > PROTOCOL_PROXY_LIMIT:
+                urls = urls[:PROTOCOL_PROXY_LIMIT]
             return "\n".join(urls)
         return str(settings.get(proxy_key) or "").strip()
 
@@ -1894,7 +3060,15 @@ class AccountPipelineService:
                         "heroSmsError": None,
                         "paymentPhonePreview": "***" + activation.phone[-4:],
                         "updatedAt": now,
-                    }
+                    },
+                    "$push": self._log_push(
+                        self._log_entry(
+                            "herosms.number_acquired",
+                            f"HeroSMS 已取得第 {attempt} 个号码",
+                            timestamp=now,
+                            details={"attempt": attempt, "price": activation.price},
+                        )
+                    ),
                 },
             )
         )
@@ -1930,6 +3104,7 @@ class AccountPipelineService:
             return False
 
     async def _mark_payment_failed(self, item_id: str, code: str, message: str) -> None:
+        now = utc_now()
         await self._guard(
             self.items.update_one(
                 {"_id": item_id},
@@ -1938,8 +3113,17 @@ class AccountPipelineService:
                         "stage": "payment_failed",
                         "paymentStatus": "failed",
                         "paymentError": {"code": code, "message": message[:500]},
-                        "updatedAt": utc_now(),
-                    }
+                        "updatedAt": now,
+                    },
+                    "$push": self._log_push(
+                        self._log_entry(
+                            "payment.failed",
+                            message or "支付失败",
+                            level="error",
+                            timestamp=now,
+                            code=code,
+                        )
+                    ),
                 },
             )
         )
@@ -2071,7 +3255,14 @@ class AccountPipelineService:
                             "heroSmsLastPollAt": utc_now(),
                             "heroSmsError": None,
                             "updatedAt": utc_now(),
-                        }
+                        },
+                        "$push": self._log_push(
+                            self._log_entry(
+                                "herosms.code_submitted",
+                                "HeroSMS 已收到并提交验证码",
+                                level="success",
+                            )
+                        ),
                     },
                 )
             )
@@ -2103,6 +3294,13 @@ class AccountPipelineService:
             or not item.get("paymentLink")
         ):
             raise PipelineServiceError("payment_link_not_ready", "该账号尚未提链成功")
+        if not self._payment_link_is_fresh(item):
+            await self._expire_payment_link(item)
+            raise PipelineServiceError(
+                "payment_link_expired",
+                "PayPal 链接已过期，请手动点击“重新提炼”",
+                409,
+            )
         await self._account_secret(str(item.get("accountId") or ""))
         settings = await self.settings()
         billing_country = str(
@@ -2117,6 +3315,10 @@ class AccountPipelineService:
         )
         if not proxies:
             raise PipelineServiceError("protocol_proxy_required", "请配置协议支付代理")
+        proxy_entries = [line.strip() for line in proxies.splitlines() if line.strip()]
+        if len(proxy_entries) > PROTOCOL_PROXY_LIMIT:
+            proxy_entries = proxy_entries[:PROTOCOL_PROXY_LIMIT]
+        proxies = "\n".join(proxy_entries)
         activation: HeroSmsActivation | None = None
         phone = payload.phone
         if not phone:
@@ -2169,7 +3371,15 @@ class AccountPipelineService:
                         "paymentError": None,
                         "paymentStartedAt": now,
                         "updatedAt": now,
-                    }
+                    },
+                    "$push": self._log_push(
+                        self._log_entry(
+                            "payment.started",
+                            "协议支付任务已启动",
+                            timestamp=now,
+                            details={"billingCountry": billing_country, "proxyCount": len(proxy_entries)},
+                        )
+                    ),
                 },
             )
         )
@@ -2185,10 +3395,20 @@ class AccountPipelineService:
             str(item["paymentDeviceId"]),
             {"value": payload.value},
         )
+        now = utc_now()
         await self._guard(
             self.items.update_one(
                 {"_id": item_id},
-                {"$set": {"paymentStatus": "running", "stage": "paying", "updatedAt": utc_now()}},
+                {
+                    "$set": {"paymentStatus": "running", "stage": "paying", "updatedAt": now},
+                    "$push": self._log_push(
+                        self._log_entry(
+                            "payment.otp_submitted",
+                            "PP 验证码已提交",
+                            timestamp=now,
+                        )
+                    ),
+                },
             )
         )
         return self._public_item((await self._guard(self.items.find_one({"_id": item_id}))) or {})
@@ -2210,25 +3430,28 @@ class AccountPipelineService:
                 )
             except PipelineServiceError as exc:
                 if exc.status_code == 404:
-                    await self._guard(
-                        self.items.update_one(
-                            {"_id": item["_id"]},
-                            {
-                                "$set": {
-                                    "stage": "payment_failed",
-                                    "paymentStatus": "failed",
-                                    "paymentError": {"code": "payment_job_lost", "message": "协议任务在服务重启后丢失"},
-                                    "updatedAt": utc_now(),
-                                }
-                            },
-                        )
+                    await self._mark_payment_failed(
+                        str(item["_id"]),
+                        "payment_job_lost",
+                        "协议任务在服务重启后丢失",
                     )
                 continue
             status = str(job.get("status") or "running")
             updates: dict[str, Any] = {"paymentStatus": status, "updatedAt": utc_now()}
+            log_entry: dict[str, Any] | None = None
             if status == "awaiting_otp":
                 updates["stage"] = "payment_waiting_otp"
-                await self._guard(self.items.update_one({"_id": item["_id"]}, {"$set": updates}))
+                update_document: dict[str, Any] = {"$set": updates}
+                if item.get("stage") != "payment_waiting_otp":
+                    update_document["$push"] = self._log_push(
+                        self._log_entry(
+                            "payment.awaiting_otp",
+                            "支付流程正在等待 PP 验证码",
+                            level="warning",
+                            timestamp=updates["updatedAt"],
+                        )
+                    )
+                await self._guard(self.items.update_one({"_id": item["_id"]}, update_document))
                 if item.get("heroSmsActivationId"):
                     refreshed = await self._guard(self.items.find_one({"_id": item["_id"]}))
                     if refreshed:
@@ -2236,6 +3459,13 @@ class AccountPipelineService:
                 continue
             elif status == "awaiting_captcha":
                 updates["stage"] = "payment_waiting_manual"
+                if item.get("stage") != "payment_waiting_manual":
+                    log_entry = self._log_entry(
+                        "payment.awaiting_manual",
+                        "支付流程需要人工验证",
+                        level="warning",
+                        timestamp=updates["updatedAt"],
+                    )
             elif status == "completed":
                 result = job.get("result") if isinstance(job.get("result"), dict) else {}
                 completed_at = utc_now()
@@ -2273,13 +3503,20 @@ class AccountPipelineService:
                         str(item["_id"]), str(item["heroSmsActivationId"]), completed=True
                     )
                 updates["heroSmsStatus"] = "completed"
+                log_entry = self._log_entry(
+                    "payment.succeeded",
+                    "协议支付已完成",
+                    level="success",
+                    timestamp=completed_at,
+                )
             elif status in {"failed", "cancelled"}:
+                failure_message = str(job.get("error") or job.get("stage") or status)[:500]
                 updates.update(
                     {
                         "stage": "payment_failed",
                         "paymentError": {
                             "code": "protocol_" + status,
-                            "message": str(job.get("error") or job.get("stage") or status)[:500],
+                            "message": failure_message,
                         },
                     }
                 )
@@ -2288,9 +3525,19 @@ class AccountPipelineService:
                         str(item["_id"]), str(item["heroSmsActivationId"]), completed=False
                     )
                 updates["heroSmsStatus"] = "cancelled"
+                log_entry = self._log_entry(
+                    "payment.failed",
+                    failure_message,
+                    level="error",
+                    timestamp=updates["updatedAt"],
+                    code="protocol_" + status,
+                )
             else:
                 updates["stage"] = "paying"
-            await self._guard(self.items.update_one({"_id": item["_id"]}, {"$set": updates}))
+            update_document = {"$set": updates}
+            if log_entry:
+                update_document["$push"] = self._log_push(log_entry)
+            await self._guard(self.items.update_one({"_id": item["_id"]}, update_document))
             if status == "completed":
                 receiver_task = asyncio.create_task(
                     self._auto_submit_paid_to_sms_receiver(str(item["_id"])),
@@ -2310,6 +3557,7 @@ class AccountPipelineService:
                 "paymentJobId": None,
                 "paymentError": None,
                 "paymentLink": None,
+                "paymentLinkExpiresAt": None,
                 "heroSmsActivationId": None,
                 "heroSmsStatus": None,
                 "heroSmsAttempt": 0,
@@ -2323,6 +3571,10 @@ class AccountPipelineService:
                 raise ResourceNotFoundError("流水线记录不存在")
             if current.get("extractionStatus") != "succeeded" or not current.get("paymentLink"):
                 raise PipelineServiceError("payment_link_not_ready", "该账号尚未提链成功")
+            if not self._payment_link_is_fresh(current):
+                await self._expire_payment_link(current)
+                refreshed = await self._guard(self.items.find_one({"_id": item_id}))
+                return self._public_item(refreshed or {})
             updates = {
                 "stage": "payment_ready",
                 "paymentStatus": "pending",
@@ -2336,8 +3588,21 @@ class AccountPipelineService:
                 "heroSmsWaitDeadline": None,
                 "heroSmsError": None,
             }
-        updates["updatedAt"] = utc_now()
-        result = await self._guard(self.items.update_one({"_id": item_id}, {"$set": updates}))
+        now = utc_now()
+        updates["updatedAt"] = now
+        event = "extraction.retry_manual" if stage == "extraction" else "payment.retry_manual"
+        message = "已手动重新提交提链" if stage == "extraction" else "已手动恢复到待支付"
+        result = await self._guard(
+            self.items.update_one(
+                {"_id": item_id},
+                {
+                    "$set": updates,
+                    "$push": self._log_push(
+                        self._log_entry(event, message, level="warning", timestamp=now)
+                    ),
+                },
+            )
+        )
         if not int(result.matched_count):
             raise ResourceNotFoundError("流水线记录不存在")
         return self._public_item((await self._guard(self.items.find_one({"_id": item_id}))) or {})
@@ -2357,5 +3622,19 @@ class AccountPipelineService:
                     "HeroSMS 旧号码暂未取消，请稍后再移除流水线记录",
                     409,
                 )
+        if item and item.get("stage") == "paid":
+            result = await self._guard(
+                self.items.update_one(
+                    {"_id": item_id, "stage": "paid"},
+                    {
+                        "$set": {
+                            "stage": "archived",
+                            "archivedAt": utc_now(),
+                            "updatedAt": utc_now(),
+                        }
+                    },
+                )
+            )
+            return int(result.modified_count)
         result = await self._guard(self.items.delete_one({"_id": item_id}))
         return int(result.deleted_count)

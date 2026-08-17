@@ -74,6 +74,39 @@ describe('dataGateway access token export', () => {
   })
 })
 
+describe('dataGateway paid account export', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  it('sends multiple paid export formats in one request', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({ formats: ['original', 'password_totp'], exports: [], errors: [], artifactCount: 0, failedFormatCount: 0 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    )
+
+    await dataGateway.exportPaidPipeline(
+      ['paid-1', 'paid-2'],
+      'example.test',
+      'unexported',
+      ['original', 'password_totp'],
+    )
+
+    expect(fetch).toHaveBeenCalledWith('/api/pipeline/paid/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids: ['paid-1', 'paid-2'],
+        query: 'example.test',
+        exportState: 'unexported',
+        formats: ['original', 'password_totp'],
+      }),
+    })
+  })
+})
+
 describe('dataGateway promotion checks', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())

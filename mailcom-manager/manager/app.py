@@ -46,6 +46,7 @@ class AliasImportPayload(ApiModel):
 
 class AliasAutoCreatePayload(ApiModel):
     targetTotal: int = Field(default=10, ge=1, le=10)
+    concurrency: int = Field(default=2, ge=1, le=4)
 
 
 class ServerSyncPayload(ApiModel):
@@ -151,7 +152,10 @@ def create_app(
     application.state.server_sync = server_sync_service or ServerSyncService()
     application.state.test_semaphore = asyncio.Semaphore(3)
     application.state.imap_semaphore = asyncio.Semaphore(3)
-    application.state.alias_semaphore = asyncio.Semaphore(1)
+    # A single browser flow per account is still serialized by the bulk worker
+    # assignment; this outer limit prevents an individual endpoint from
+    # launching an unbounded number of Chromium sessions.
+    application.state.alias_semaphore = asyncio.Semaphore(4)
     application.state.alias_bulk_lock = asyncio.Lock()
     application.state.alias_bulk_job = None
     application.state.alias_bulk_task = None
@@ -315,6 +319,7 @@ def create_app(
     async def create_aliases_for_account(
         account_id: str,
         target_total: int,
+        slot_semaphore: asyncio.Semaphore | None = None,
     ) -> dict[str, Any]:
         account = await asyncio.to_thread(store.get_account, account_id)
         credentials = await asyncio.to_thread(store.get_credentials, account_id)
@@ -330,14 +335,23 @@ def create_app(
                 "mail.com 自动创建",
             )
 
+        async def create_remote_aliases() -> Any:
+            return await application.state.alias_creator.create_to_total(
+                email,
+                password,
+                target_total,
+                persist,
+            )
+
         try:
+            # The job-level slot limits this bulk run; the application-level
+            # semaphore also accounts for manually triggered jobs.
             async with application.state.alias_semaphore:
-                result = await application.state.alias_creator.create_to_total(
-                    email,
-                    password,
-                    target_total,
-                    persist,
-                )
+                if slot_semaphore is None:
+                    result = await create_remote_aliases()
+                else:
+                    async with slot_semaphore:
+                        result = await create_remote_aliases()
         except AliasCreationError as exc:
             raise HTTPException(
                 status_code=502,
@@ -388,14 +402,25 @@ def create_app(
         job: dict[str, Any],
         accounts: list[dict[str, Any]],
         target_total: int,
+        concurrency: int,
     ) -> None:
         job["status"] = "running"
         job["startedAt"] = datetime.now(timezone.utc).isoformat()
+        concurrency = max(1, min(4, int(concurrency)))
+        job["concurrency"] = concurrency
+        job["activeAccounts"] = []
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         for account in accounts:
-            job["currentAccount"] = account["email"]
+            queue.put_nowait(account)
+        slots = asyncio.Semaphore(concurrency)
+
+        async def process_account(account: dict[str, Any]) -> None:
+            email = str(account["email"])
+            job["activeAccounts"].append(email)
+            job["currentAccount"] = email
             try:
                 result = await create_aliases_for_account(
-                    str(account["id"]), target_total
+                    str(account["id"]), target_total, slots
                 )
                 job["succeeded"] += 1
                 job["created"] += int(result.get("created") or 0)
@@ -406,23 +431,43 @@ def create_app(
                 message = (
                     detail.get("message") if isinstance(detail, dict) else str(detail)
                 )
-                job["errors"].append(
-                    {"email": account["email"], "message": str(message)[:300]}
-                )
+                job["errors"].append({"email": email, "message": str(message)[:300]})
             except Exception as exc:
                 job["failed"] += 1
                 job["errors"].append(
-                    {"email": account["email"], "message": type(exc).__name__}
+                    {"email": email, "message": type(exc).__name__}
                 )
             finally:
                 job["completed"] += 1
+                if email in job["activeAccounts"]:
+                    job["activeAccounts"].remove(email)
                 job["progress"] = round(
                     job["completed"] / max(1, job["total"]) * 100, 1
                 )
                 if len(job["errors"]) > 100:
                     job["errors"] = job["errors"][-100:]
-            await asyncio.sleep(1)
+
+        async def worker() -> None:
+            while True:
+                try:
+                    account = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    return
+                try:
+                    await process_account(account)
+                finally:
+                    queue.task_done()
+                    # Keep a small gap per worker so the provider is not hit
+                    # with a burst immediately after a browser closes.
+                    await asyncio.sleep(1)
+
+        workers = [
+            asyncio.create_task(worker(), name=f"mailcom-alias-worker-{index}")
+            for index in range(min(concurrency, len(accounts)))
+        ]
+        await asyncio.gather(*workers)
         job["currentAccount"] = None
+        job["activeAccounts"] = []
         job["finishedAt"] = datetime.now(timezone.utc).isoformat()
         job["status"] = "completed_with_errors" if job["failed"] else "completed"
 
@@ -444,6 +489,7 @@ def create_app(
                 "id": uuid4().hex,
                 "status": "queued",
                 "targetTotal": payload.targetTotal,
+                "concurrency": payload.concurrency,
                 "total": len(accounts),
                 "completed": 0,
                 "succeeded": 0,
@@ -452,6 +498,7 @@ def create_app(
                 "importedExisting": 0,
                 "progress": 0.0 if accounts else 100.0,
                 "currentAccount": None,
+                "activeAccounts": [],
                 "createdAt": now,
                 "startedAt": None,
                 "finishedAt": now if not accounts else None,
@@ -460,7 +507,9 @@ def create_app(
             application.state.alias_bulk_job = job
             if accounts:
                 application.state.alias_bulk_task = asyncio.create_task(
-                    run_bulk_alias_job(job, accounts, payload.targetTotal),
+                    run_bulk_alias_job(
+                        job, accounts, payload.targetTotal, payload.concurrency
+                    ),
                     name="mailcom-bulk-alias-create",
                 )
             else:

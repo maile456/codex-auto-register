@@ -27,6 +27,20 @@ from .roxy_client import RoxyApiError, RoxyClient, RoxyOpenResult
 from .settings_store import SettingsStore
 
 
+TERMINAL_SECURITY_BACKFILL_CODES = frozenset({"account_deactivated"})
+RETRYABLE_SECURITY_BACKFILL_CODES = frozenset(
+    {
+        "RoxyApiError",
+        "email_form_not_stable",
+        "login_navigation_timeout",
+        "mailbox_unavailable",
+        "stale_verification_email",
+        "verification_code_timeout",
+    }
+)
+SECURITY_BACKFILL_MAX_ATTEMPTS = 3
+
+
 @dataclass(frozen=True, slots=True)
 class AccountMfaResult:
     account_id: str
@@ -112,16 +126,9 @@ class PaidAccountMfaBackfill:
         missing_totp = {"totpSecret": {"$in": ["", None]}}
         missing_password = {"chatgptPassword": {"$in": ["", None]}}
         query = {
-            "$or": [
-                {
-                    "_id": {"$in": account_ids},
-                    "$or": [missing_totp, missing_password],
-                },
-                {
-                    "totpStatus": "enabled",
-                    "chatgptPassword": {"$in": ["", None]},
-                },
-            ],
+            "_id": {"$in": account_ids},
+            "$or": [missing_totp, missing_password],
+            "securityBackfillError": {"$nin": sorted(TERMINAL_SECURITY_BACKFILL_CODES)},
             "email": {"$type": "string", "$ne": ""},
             "emailAccessUrl": {"$type": "string", "$ne": ""},
         }
@@ -139,10 +146,26 @@ class PaidAccountMfaBackfill:
             documents = await self.candidates(limit)
             results: list[AccountMfaResult] = []
             for account in documents:
-                results.append(await self._run_one(account))
+                results.append(await self._run_one_with_retries(account))
             return results
         finally:
             await self.mongo.stop()
+
+    async def _run_one_with_retries(
+        self,
+        account: dict[str, Any],
+    ) -> AccountMfaResult:
+        result = AccountMfaResult(str(account.get("_id") or ""), "failed", "not_started")
+        for attempt in range(SECURITY_BACKFILL_MAX_ATTEMPTS):
+            result = await self._run_one(account)
+            if (
+                result.status == "success"
+                or result.code not in RETRYABLE_SECURITY_BACKFILL_CODES
+                or attempt + 1 >= SECURITY_BACKFILL_MAX_ATTEMPTS
+            ):
+                return result
+            await asyncio.sleep(3 * (attempt + 1))
+        return result
 
     async def _run_one(self, account: dict[str, Any]) -> AccountMfaResult:
         account_id = str(account["_id"])
@@ -162,6 +185,14 @@ class PaidAccountMfaBackfill:
         except Exception as exc:
             code = getattr(exc, "code", type(exc).__name__)
             message = getattr(exc, "message", str(exc))
+            diagnostics: dict[str, Any] = {}
+            if isinstance(exc, RoxyApiError):
+                diagnostics = {
+                    "securityBackfillRoxyOperation": exc.operation,
+                    "securityBackfillRoxyErrorKind": exc.error_kind,
+                    "securityBackfillRoxyApiCode": exc.api_code,
+                    "securityBackfillRoxyHttpStatus": exc.http_status,
+                }
             await self.resources.accounts.update_one(
                 {"_id": account_id},
                 {
@@ -170,6 +201,7 @@ class PaidAccountMfaBackfill:
                         "securityBackfillError": str(code)[:120],
                         "securityBackfillErrorMessage": str(message)[:300],
                         "securityBackfillFinishedAt": datetime.now(timezone.utc),
+                        **diagnostics,
                     }
                 },
             )
@@ -200,6 +232,20 @@ class PaidAccountMfaBackfill:
         local_password = str(account.get("chatgptPassword") or "")
         settings = self.settings_store.load()
         api_key = settings.roxyApiKey
+        registration_country = str(account.get("registrationCountry") or "").strip().upper()
+        proxy_group = " ".join(str(account.get("registrationProxyGroup") or "").split())
+        if not proxy_group and registration_country:
+            recent_run = await self.mongo.database["runs"].find_one(
+                {
+                    "registrationCountry": registration_country,
+                    "registrationProxyGroup": {"$type": "string", "$ne": ""},
+                },
+                {"registrationProxyGroup": 1},
+                sort=[("updatedAt", -1)],
+            )
+            proxy_group = " ".join(
+                str((recent_run or {}).get("registrationProxyGroup") or "").split()
+            )
         owner = f"probe:mfa:{account_id}:{uuid4().hex[:8]}"
         workspace_id: int | None = None
         proxy_id: str | None = None
@@ -230,7 +276,8 @@ class PaidAccountMfaBackfill:
                 proxy = await self.probes.acquire_proxy(
                     owner,
                     lease_seconds=600,
-                    country=str(account.get("registrationCountry") or "") or None,
+                    country=registration_country or None,
+                    group=proxy_group or None,
                 )
                 if proxy is None:
                     raise RuntimeError("没有可用代理")
@@ -393,11 +440,17 @@ async def _main(limit: int, *, wait_until_idle: bool, canary_then_all: bool) -> 
         await _wait_until_registration_idle()
     service = PaidAccountMfaBackfill()
     if canary_then_all:
-        canary = await service.run(limit=1)
-        if canary and canary[0].status == "success":
-            results = canary + await service.run(limit=0)
-        else:
-            results = canary
+        results: list[AccountMfaResult] = []
+        while True:
+            canary = await service.run(limit=1)
+            if not canary:
+                break
+            results.extend(canary)
+            if canary[0].status == "success":
+                results.extend(await service.run(limit=0))
+                break
+            if canary[0].code not in TERMINAL_SECURITY_BACKFILL_CODES:
+                break
     else:
         results = await service.run(limit=limit)
     summary = {

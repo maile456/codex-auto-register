@@ -234,6 +234,13 @@ AUTH_RETRY_PAGE_PATTERN = re.compile(
     r"tekrar\s+dene|yeniden\s+dene|önce\s+dene",
     re.IGNORECASE,
 )
+ACCOUNT_DEACTIVATED_PATTERN = re.compile(
+    r"account_deactivated|"
+    r"account.{0,80}(?:deleted|deactivated|disabled)|"
+    r"アカウント.{0,80}(?:削除|無効)|"
+    r"(?:账户|帳戶|账号|帳號).{0,80}(?:删除|刪除|停用|禁用)",
+    re.IGNORECASE,
+)
 PASSKEY_ENROLL_HOST = "auth.openai.com"
 PASSKEY_ENROLL_PATH = "/passkey-enroll"
 PASSKEY_REDIRECT_HOSTS = frozenset({"auth.openai.com", "chatgpt.com"})
@@ -2719,6 +2726,17 @@ class CdpBrowserAutomation:
             button_visible = await self._is_visible(continue_button)
         except Exception:
             button_visible = False
+        is_authenticator_factor = (
+            AUTHENTICATOR_FACTOR_PATTERN.search(initial_body) is not None
+        )
+        if not button_visible and is_authenticator_factor:
+            totp_submit = page.locator('button[type="submit"], input[type="submit"]')
+            try:
+                if await self._is_visible(totp_submit):
+                    continue_button = totp_submit
+                    button_visible = True
+            except Exception:
+                button_visible = False
         if not button_visible:
             await self._safe_screenshot(page)
             raise VerificationStepError(
@@ -2766,6 +2784,16 @@ class CdpBrowserAutomation:
         refreshed_button = page.locator(
             'button[type="submit"][name="intent"][value="validate"]'
         )
+        if is_authenticator_factor:
+            try:
+                if not await self._is_visible(refreshed_button):
+                    totp_submit = page.locator(
+                        'button[type="submit"], input[type="submit"]'
+                    )
+                    if await self._is_visible(totp_submit):
+                        refreshed_button = totp_submit
+            except Exception:
+                pass
         try:
             value_before_click = await refreshed_input.first.input_value(
                 timeout=self.email_action_timeout_ms
@@ -3631,7 +3659,7 @@ class CdpBrowserAutomation:
         except VerificationStepError as exc:
             raise TotpEnrollmentError(
                 "existing_login",
-                "totp_challenge_failed",
+                f"totp_challenge_{exc.code}",
                 "认证器验证码登录失败",
             ) from exc
 
@@ -4119,6 +4147,7 @@ class CdpBrowserAutomation:
                             )
                         await asyncio.sleep(self.poll_interval_seconds)
                         continue
+                    await self._safe_screenshot(page)
                     code_requested_at = requested_at
                     if not email_resend_attempted:
                         try:
@@ -4904,6 +4933,18 @@ class CdpBrowserAutomation:
                     "检测到人机验证或挑战页，探测已停止",
                     stage="verification",
                     wait_ms=elapsed_ms(),
+                )
+
+            if ACCOUNT_DEACTIVATED_PATTERN.search(body_text):
+                await self._safe_screenshot(page)
+                raise VerificationStepError(
+                    "account_deactivated",
+                    "账号已被删除或停用",
+                    post_click_state="account_deactivated",
+                    wait_elapsed_ms=elapsed_ms(),
+                    url_changed=sanitize_url(page.url) != initial_url,
+                    input_visible_at_end=False,
+                    button_visible_at_end=False,
                 )
 
             if (

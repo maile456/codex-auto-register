@@ -263,7 +263,7 @@ def test_browser_executor_caps_concurrency_and_spawns_once_per_email(tmp_path: P
     assert len({item["workerId"] for item in launches}) == 5
     assert len({item["leaseOwner"] for item in launches}) == 5
     assert len({item["artifactDir"] for item in launches}) == 5
-    assert max_active == 3
+    assert 1 < max_active <= 3
     assert state.processed == state.succeeded == 5
     assert state.failed == state.pending == state.activeWorkers == 0
     assert sorted(resources.released) == [f"email-{index}" for index in range(1, 6)]

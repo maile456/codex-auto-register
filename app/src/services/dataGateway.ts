@@ -32,11 +32,16 @@ import type {
   PaypalAgreementServiceState,
   PipelineItem,
   PipelineList,
+  PipelineLogResponse,
   PipelinePaidExport,
+  PipelinePaidExportResponse,
+  PipelinePaidExportFormat,
   PipelinePaidMailCheck,
   PipelinePaidStats,
   PipelineSettings,
   SmsReceiverBatchResult,
+  SmsReceiverHeroSmsCatalog,
+  SmsReceiverHeroSmsSettings,
   SmsReceiverSettings,
   ResourceQuery,
   RunExecutionState,
@@ -134,17 +139,33 @@ export const dataGateway = {
     }))
   },
 
+  async pipelineLogs(id: string): Promise<PipelineLogResponse> {
+    return parseResponse(await fetch(`/api/pipeline/${encodeURIComponent(id)}/logs`, {
+      headers: paymentExtractorHeaders(),
+    }))
+  },
+
   async paidPipelineStats(days = 14): Promise<PipelinePaidStats> {
     return parseResponse(await fetch(`/api/pipeline/paid/stats?days=${days}`, {
       headers: paymentExtractorHeaders(),
     }))
   },
 
-  async exportPaidPipeline(ids: string[], query = '', exportState: 'all' | 'exported' | 'unexported' = 'all'): Promise<PipelinePaidExport> {
+  async exportPaidPipeline(
+    ids: string[],
+    query = '',
+    exportState: 'all' | 'exported' | 'unexported' = 'all',
+    format: PipelinePaidExportFormat | PipelinePaidExportFormat[] = 'original',
+  ): Promise<PipelinePaidExportResponse> {
+    const body = Array.isArray(format)
+      ? { ids, query, exportState, formats: format }
+      : format === 'original'
+      ? { ids, query, exportState }
+      : { ids, query, exportState, format }
     return parseResponse(await fetch('/api/pipeline/paid/export', {
       method: 'POST',
       headers: paymentExtractorHeaders(true),
-      body: JSON.stringify({ ids, query, exportState }),
+      body: JSON.stringify(body),
     }))
   },
 
@@ -181,6 +202,26 @@ export const dataGateway = {
   async testSmsReceiver(): Promise<{ ok: boolean; service: string; baseUrl: string }> {
     return parseResponse(await fetch('/api/pipeline/sms-receiver/test', {
       method: 'POST',
+      headers: paymentExtractorHeaders(),
+    }))
+  },
+
+  async smsReceiverHeroSmsSettings(): Promise<SmsReceiverHeroSmsSettings> {
+    return parseResponse(await fetch('/api/pipeline/sms-receiver/herosms', {
+      headers: paymentExtractorHeaders(),
+    }))
+  },
+
+  async updateSmsReceiverHeroSmsSettings(input: SmsReceiverHeroSmsSettings): Promise<SmsReceiverHeroSmsSettings> {
+    return parseResponse(await fetch('/api/pipeline/sms-receiver/herosms', {
+      method: 'PUT',
+      headers: paymentExtractorHeaders(true),
+      body: JSON.stringify(input),
+    }))
+  },
+
+  async smsReceiverHeroSmsCatalog(): Promise<SmsReceiverHeroSmsCatalog> {
+    return parseResponse(await fetch('/api/pipeline/sms-receiver/herosms/catalog', {
       headers: paymentExtractorHeaders(),
     }))
   },

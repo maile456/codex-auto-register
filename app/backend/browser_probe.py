@@ -1701,8 +1701,9 @@ class BrowserProbeRunner:
                     account = await self.resources.complete_probe_profile_success(
                         email_source,
                         self.reservation_owner,
-                        account_password,
-                        self.registration_country,
+                        chatgpt_password=account_password,
+                        registration_country=self.registration_country,
+                        registration_proxy_group=self.registration_proxy_group,
                     )
                     account_id = account.id
                     self.email_consumed = True

@@ -59,6 +59,7 @@ from .pipeline_service import (
     PipelineServiceError,
     PipelineSettingsUpdate,
     SmsReceiverBatchInput,
+    SmsReceiverHeroSmsSettingsUpdate,
     SmsReceiverSettingsUpdate,
 )
 from .probe_store import MongoProbeStore
@@ -379,6 +380,10 @@ def create_app(
             settlement_state=settlement_state,
         )
 
+    @app.get("/api/pipeline/{item_id}/logs")
+    async def pipeline_item_logs(item_id: str, request: Request) -> dict:
+        return await request.app.state.account_pipeline.item_logs(item_id)
+
     @app.get("/api/pipeline/paid/stats")
     async def pipeline_paid_stats(
         request: Request,
@@ -421,6 +426,23 @@ def create_app(
     @app.post("/api/pipeline/sms-receiver/test")
     async def test_sms_receiver(request: Request) -> dict:
         return await request.app.state.account_pipeline.test_sms_receiver()
+
+    @app.get("/api/pipeline/sms-receiver/herosms")
+    async def sms_receiver_hero_sms_settings(request: Request) -> dict:
+        return await request.app.state.account_pipeline.sms_receiver_hero_sms_settings()
+
+    @app.put("/api/pipeline/sms-receiver/herosms")
+    async def update_sms_receiver_hero_sms_settings(
+        payload: SmsReceiverHeroSmsSettingsUpdate,
+        request: Request,
+    ) -> dict:
+        return await request.app.state.account_pipeline.update_sms_receiver_hero_sms_settings(
+            payload
+        )
+
+    @app.get("/api/pipeline/sms-receiver/herosms/catalog")
+    async def sms_receiver_hero_sms_catalog(request: Request) -> dict:
+        return await request.app.state.account_pipeline.sms_receiver_hero_sms_catalog()
 
     @app.post("/api/pipeline/paid/sms-receiver/submit")
     async def submit_paid_to_sms_receiver(

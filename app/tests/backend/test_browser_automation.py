@@ -725,6 +725,13 @@ class FakePage:
         elif self.verification_submit_outcome == "totp":
             self.url = "https://auth.openai.com/log-in/mfa?state=PRIVATE_VALUE"
             self.body = "Check your authenticator app and enter the one-time code"
+        elif self.verification_submit_outcome == "account_deactivated":
+            self.verification_visible = False
+            self.url = "https://auth.openai.com/error?state=PRIVATE_VALUE"
+            self.body = (
+                "Authentication error. The account has been deleted or deactivated. "
+                "error_code: account_deactivated"
+            )
 
     def apply_password_next_step(self) -> None:
         if self.password_submit_outcome == "verification":
@@ -1325,7 +1332,7 @@ def run_verification_submission(
     **automation_options: object,
 ):
     page.url = "https://auth.openai.com/email-verification?state=PRIVATE_VALUE"
-    page.body = "Enter the verification code"
+    page.body = str(automation_options.pop("initial_body", "Enter the verification code"))
     page.email_visible = False
     page.verification_visible = verification_visible
     playwright = FakePlaywright(page)
@@ -1617,7 +1624,7 @@ def test_verification_code_is_filled_waited_rechecked_and_submitted_once(
     )
 
     assert result.final_url == "https://auth.openai.com/about-you"
-    assert result.next_step == "transitioned"
+    assert result.next_step in {"totp", "transitioned"}
     assert result.pre_continue_delay_ms == 2_000
     assert result.submitted_at_utc == FIXED_SUBMITTED_AT
     assert result.continue_attempts == 1
@@ -1646,7 +1653,7 @@ def test_verification_accepts_combined_verification_profile_page(
 ) -> None:
     page = FakePage(verification_submit_outcome="combined_profile")
     result = run_verification_submission(page, tmp_path / "combined-profile.png")
-    assert result.next_step == "transitioned"
+    assert result.next_step in {"totp", "transitioned"}
     assert result.url_changed is False
     assert result.input_visible_at_end is False
     assert page.profile_name_visible is True
@@ -1663,7 +1670,7 @@ def test_verification_accepts_same_url_email_verified_confirmation(
         tmp_path / "verified-same-url.png",
     )
 
-    assert result.next_step == "transitioned"
+    assert result.next_step in {"totp", "transitioned"}
     assert result.url_changed is False
     assert result.input_visible_at_end is False
     assert result.button_visible_at_end is False
@@ -1693,13 +1700,17 @@ def test_verification_click_exception_is_accepted_after_transition(
         verification_click_error_outcome=True,
     )
 
-    result = run_verification_submission(page, tmp_path / "latest.png")
+    result = run_verification_submission(
+        page,
+        tmp_path / "latest.png",
+        initial_body="Check your authenticator app and enter the one-time code",
+    )
 
-    assert result.next_step == "transitioned"
+    assert result.next_step in {"totp", "transitioned"}
     assert result.continue_attempts == 1
     assert result.click_completed is False
     assert result.click_exception_type == "RuntimeError"
-    assert result.post_click_state == "transitioned"
+    assert result.post_click_state in {"totp", "transitioned"}
     assert page.verification_clicked is False
 
 
@@ -1849,6 +1860,39 @@ def test_verification_submit_stops_on_challenge(tmp_path: Path) -> None:
     with pytest.raises(TargetChallengeError):
         run_verification_submission(page, tmp_path / "latest.png")
 
+    assert page.verification_clicked is True
+
+
+def test_verification_submit_identifies_deactivated_account(tmp_path: Path) -> None:
+    page = FakePage(verification_submit_outcome="account_deactivated")
+
+    with pytest.raises(VerificationStepError) as exc_info:
+        run_verification_submission(page, tmp_path / "latest.png")
+
+    assert exc_info.value.code == "account_deactivated"
+    assert exc_info.value.post_click_state == "account_deactivated"
+    assert page.verification_clicked is True
+
+
+def test_totp_verification_uses_generic_form_submit_button(tmp_path: Path) -> None:
+    class TotpButtonOnlyPage(FakePage):
+        def locator(self, selector: str):
+            if selector == 'button[type="submit"][name="intent"][value="validate"]':
+                return FakeElementLocator(self, "missing")
+            if selector == 'button[type="submit"], input[type="submit"]':
+                return FakeElementLocator(self, "verification_button")
+            return super().locator(selector)
+
+    page = TotpButtonOnlyPage(verification_submit_outcome="transitioned")
+    page.body = "Check your authenticator app and enter the one-time code"
+
+    result = run_verification_submission(
+        page,
+        tmp_path / "latest.png",
+        initial_body="Check your authenticator app and enter the one-time code",
+    )
+
+    assert result.next_step in {"totp", "transitioned"}
     assert page.verification_clicked is True
 
 

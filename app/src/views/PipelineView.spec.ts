@@ -10,6 +10,7 @@ vi.mock('@/services/dataGateway', () => ({
   dataGateway: {
     pipelineSettings: vi.fn(),
     listPipeline: vi.fn(),
+    pipelineLogs: vi.fn(),
     syncPipeline: vi.fn(),
     updatePipelineSettings: vi.fn(),
     extractPipeline: vi.fn(),
@@ -58,8 +59,8 @@ const settings = {
   enabled: false,
   extractionConcurrency: 1,
   paymentConcurrency: 1,
-  extractionFailureRetries: 2,
-  paymentFailureRetries: 2,
+  extractionFailureRetries: 0,
+  paymentFailureRetries: 0,
   country: 'JP' as const,
   checkoutProxy: 'http://checkout.example:8080',
   updateProxy: 'http://update.example:8080',
@@ -93,6 +94,20 @@ describe('PipelineView', () => {
       counts: { eligible: 1, paid: 1 },
     })
     vi.mocked(dataGateway.extractPipeline).mockResolvedValue({ requested: 1, started: 1 })
+    vi.mocked(dataGateway.pipelineLogs).mockResolvedValue({
+      itemId: 'pipeline-1',
+      email: 'pipeline@example.test',
+      stage: 'payment_failed',
+      logs: [{
+        id: 'log-1',
+        timestamp: '2026-08-18T00:00:00Z',
+        level: 'error',
+        event: 'payment.failed',
+        message: '协议代理池超过 500 条上限',
+        code: 'protocol_request_failed',
+        details: { proxyCount: 1100 },
+      }],
+    })
     vi.mocked(dataGateway.listProxyCountries).mockResolvedValue([
       { country: 'TR', total: 10, enabled: 8 },
       { country: 'JP', total: 5, enabled: 5 },
@@ -138,6 +153,82 @@ describe('PipelineView', () => {
     await flushPromises()
 
     expect(dataGateway.extractPipeline).toHaveBeenCalledWith(['pipeline-1'])
+    wrapper.unmount()
+  })
+
+  it('loads a redacted timeline only when the row log button is clicked', async () => {
+    const wrapper = mount(PipelineView, {
+      attachTo: document.body,
+      global: { plugins: [ElementPlus, router] },
+    })
+    await flushPromises()
+
+    expect(dataGateway.pipelineLogs).not.toHaveBeenCalled()
+    const logButton = wrapper.findAll('button').find((button) => button.text() === '日志')
+    await logButton!.trigger('click')
+    await flushPromises()
+
+    expect(dataGateway.pipelineLogs).toHaveBeenCalledWith('pipeline-1')
+    expect(document.body.textContent).toContain('协议代理池超过 500 条上限')
+    expect(document.body.textContent).toContain('protocol_request_failed')
+    expect(document.body.textContent).toContain('proxyCount：1100')
+    wrapper.unmount()
+  })
+
+  it('offers a manual re-extract action for payment failures', async () => {
+    vi.mocked(dataGateway.listPipeline).mockResolvedValue({
+      items: [item({
+        stage: 'payment_failed',
+        extractionStatus: 'succeeded',
+        paymentStatus: 'failed',
+        paymentError: { code: 'protocol_request_failed', message: 'stale link' },
+        paymentLink: 'https://checkout.example.test/pay/stale',
+        paymentLinkConfigured: true,
+      })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      counts: { payment_failed: 1 },
+    })
+    const wrapper = mount(PipelineView, {
+      attachTo: document.body,
+      global: { plugins: [ElementPlus, router] },
+    })
+    await flushPromises()
+
+    const reextractButton = wrapper.findAll('button').find((button) => button.text() === '重新提炼')
+    expect(reextractButton).toBeDefined()
+    await reextractButton!.trigger('click')
+    await flushPromises()
+
+    expect(dataGateway.retryPipeline).toHaveBeenCalledWith('pipeline-1', 'extraction')
+    expect(dataGateway.extractPipeline).toHaveBeenCalledWith(['pipeline-1'])
+    wrapper.unmount()
+  })
+
+  it('shows the remaining lifetime for a fresh PayPal link', async () => {
+    vi.mocked(dataGateway.listPipeline).mockResolvedValue({
+      items: [item({
+        stage: 'payment_ready',
+        extractionStatus: 'succeeded',
+        paymentLink: 'https://checkout.example.test/pay/fixture',
+        paymentLinkConfigured: true,
+        paymentLinkExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        paymentLinkExpired: false,
+        paymentLinkRemainingSeconds: 600,
+      })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      counts: { payment_ready: 1 },
+    })
+    const wrapper = mount(PipelineView, {
+      attachTo: document.body,
+      global: { plugins: [ElementPlus, router] },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('链接剩余')
     wrapper.unmount()
   })
 
@@ -234,8 +325,8 @@ describe('PipelineView', () => {
     expect(document.body.textContent).toContain('自动流水线总开关')
     expect(document.body.textContent).toContain('自动提链并发')
     expect(document.body.textContent).toContain('自动支付并发')
-    expect(document.body.textContent).toContain('提链失败重试次数')
-    expect(document.body.textContent).toContain('支付失败重试次数')
+    expect(document.body.textContent).toContain('提链失败自动重试（0 = 仅手动）')
+    expect(document.body.textContent).toContain('支付失败自动重试（0 = 仅手动）')
     expect(document.body.textContent).toContain('账单国家 / 支付方式')
     expect(document.body.textContent).toContain('账单国家与下面的代理出口国家互相独立')
     expect(document.body.textContent).toContain('日本 · JPY · PayPal')

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import time
 
@@ -573,3 +574,65 @@ def test_bulk_auto_create_processes_only_underfilled_accounts(tmp_path: Path) ->
         )
         assert second_start.status_code == 202
         assert second_start.json()["total"] == 0
+
+
+def test_bulk_auto_create_honors_concurrency_limit(tmp_path: Path) -> None:
+    class ConcurrentAliasCreator:
+        def __init__(self) -> None:
+            self.active = 0
+            self.max_active = 0
+
+        async def create_to_total(
+            self,
+            email: str,
+            password: str,
+            target_total: int,
+            on_created,
+        ) -> AliasCreationResult:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            try:
+                await asyncio.sleep(0.04)
+                return AliasCreationResult(
+                    remote_before=(email,),
+                    created=(),
+                    remote_after=(email,),
+                )
+            finally:
+                self.active -= 1
+
+    creator = ConcurrentAliasCreator()
+    app = create_app(
+        db_path=tmp_path / "manager.db",
+        cipher=FakeCipher(),
+        imap_service=FakeMailbox(),  # type: ignore[arg-type]
+        alias_creator=creator,
+    )
+    with TestClient(app) as client:
+        client.post(
+            "/api/accounts/import",
+            json={
+                "rawText": (
+                    "one@gardener.com----one-password\n"
+                    "two@engineer.com----two-password\n"
+                    "three@worker.com----three-password\n"
+                    "four@collector.com----four-password"
+                )
+            },
+        )
+        started = client.post(
+            "/api/aliases/auto-create-all",
+            json={"targetTotal": 10, "concurrency": 2},
+        )
+        assert started.status_code == 202
+        assert started.json()["concurrency"] == 2
+        job = started.json()
+        for _ in range(100):
+            job = client.get(f"/api/aliases/auto-create-all/{job['id']}").json()
+            if job["status"] not in {"queued", "running"}:
+                break
+            time.sleep(0.02)
+
+        assert job["status"] == "completed"
+        assert job["completed"] == 4
+        assert creator.max_active == 2

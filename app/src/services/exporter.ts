@@ -56,6 +56,29 @@ export function downloadTextFile(content: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+export function downloadEncodedFile(
+  content: string,
+  filename: string,
+  mimeType = 'application/octet-stream',
+  encoding: 'utf-8' | 'base64' = 'utf-8',
+) {
+  let blob: Blob
+  if (encoding === 'base64') {
+    const binary = window.atob(content)
+    const bytes = new Uint8Array(binary.length)
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+    blob = new Blob([bytes], { type: mimeType })
+  } else {
+    blob = new Blob([content], { type: `${mimeType};charset=utf-8` })
+  }
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 export async function copyText(content: string) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(content)

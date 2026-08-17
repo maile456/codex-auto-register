@@ -104,6 +104,8 @@ main { width: min(1440px, 92vw); margin: 0 auto; padding: 42px 0 60px; }
 .button.small { min-height: 32px; padding: 0 11px; font-size: 11px; }
 
 .bulk-progress { padding: 13px 16px 15px; border-bottom: 1px solid var(--line); background: rgb(98 230 169 / 3%); }
+.bulk-concurrency { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.bulk-concurrency select { min-width: 44px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--text); background: var(--panel); }
 .bulk-progress-head, .bulk-progress-detail { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .bulk-progress-head strong { font-size: 11px; }.bulk-progress-head span, .bulk-progress-detail { color: var(--muted); font-size: 10px; }
 .bulk-progress-track { height: 6px; margin: 10px 0 8px; overflow: hidden; border-radius: 999px; background: #172522; }

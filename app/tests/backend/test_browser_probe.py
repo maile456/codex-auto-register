@@ -327,6 +327,7 @@ class FakeResourceStore:
         self.released: list[tuple[str, str]] = []
         self.completed: list[tuple[str, str]] = []
         self.completed_countries: list[str | None] = []
+        self.completed_proxy_groups: list[str | None] = []
         self.stored_tokens: list[tuple[str, str, datetime]] = []
         self.stored_plans: list[tuple[str, AccountPlanResult]] = []
         self.plan_failures: list[tuple[str, str]] = []
@@ -347,12 +348,14 @@ class FakeResourceStore:
         owner: str,
         chatgpt_password: str = "",
         registration_country: str | None = None,
+        registration_proxy_group: str | None = None,
     ) -> SimpleNamespace:
         if self.events is not None:
             self.events.append("account_persisted")
         email_id = str(source["_id"])
         self.completed.append((email_id, owner))
         self.completed_countries.append(registration_country)
+        self.completed_proxy_groups.append(registration_proxy_group)
         assert chatgpt_password == "" or len(chatgpt_password) >= 12
         return SimpleNamespace(id="account-id")
 

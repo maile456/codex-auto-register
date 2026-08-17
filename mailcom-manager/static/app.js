@@ -202,13 +202,16 @@ function renderBulkAliasJob(job) {
   button.textContent = running ? '正在补足…' : '一键补足未满'
   $('bulkAliasBar').style.width = `${Math.max(0, Math.min(100, job.progress || 0))}%`
   $('bulkAliasSummary').textContent = `${job.completed} / ${job.total} · ${job.progress || 0}%`
-  $('bulkAliasCurrent').textContent = job.currentAccount ? `当前：${job.currentAccount}` : running ? '正在准备下一个邮箱…' : '任务已结束'
+  const active = Array.isArray(job.activeAccounts) ? job.activeAccounts.filter(Boolean) : []
+  $('bulkAliasCurrent').textContent = active.length
+    ? `运行中 ${active.length}/${job.concurrency || 1}：${active.join('、')}`
+    : running ? '正在准备下一个邮箱…' : '任务已结束'
   $('bulkAliasResult').textContent = `成功 ${job.succeeded} · 失败 ${job.failed} · 新建 ${job.created}`
   $('bulkAliasTitle').textContent = job.status === 'completed'
     ? '未满邮箱已全部补足'
     : job.status === 'completed_with_errors'
       ? '批量补足完成（部分失败）'
-      : '正在逐个补足到 10 个地址'
+      : `并发补足到 10 个地址（${job.concurrency || 1} 路）`
 }
 
 async function pollBulkAliasJob(jobId) {
@@ -236,14 +239,17 @@ async function startBulkAliases() {
   try {
     const job = await api('/api/aliases/auto-create-all', {
       method: 'POST',
-      body: JSON.stringify({ targetTotal: 10 }),
+      body: JSON.stringify({
+        targetTotal: 10,
+        concurrency: Number.parseInt($('aliasConcurrencySelect').value, 10) || 2,
+      }),
     })
     renderBulkAliasJob(job)
     if (!job.total) {
       toast('所有邮箱都已经分裂满 10 个地址')
       return
     }
-    toast(`已开始处理 ${job.total} 个未满邮箱，将逐个登录创建`)
+    toast(`已开始处理 ${job.total} 个未满邮箱，${job.concurrency || 2} 路并发创建`)
     await pollBulkAliasJob(job.id)
   } catch (error) {
     button.disabled = false

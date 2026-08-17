@@ -104,6 +104,16 @@ class MemoryCollection:
         item.update(update.get("$set", {}))
         for field, amount in update.get("$inc", {}).items():
             item[field] = int(item.get(field) or 0) + int(amount)
+        for field, operation in update.get("$push", {}).items():
+            values = list(item.get(field) or [])
+            if isinstance(operation, dict) and isinstance(operation.get("$each"), list):
+                values.extend(operation["$each"])
+                slice_value = operation.get("$slice")
+                if isinstance(slice_value, int):
+                    values = values[slice_value:] if slice_value < 0 else values[:slice_value]
+            else:
+                values.append(operation)
+            item[field] = values
         self.documents[str(item["_id"])] = item
         return SimpleNamespace(matched_count=1, modified_count=1, upserted_id=None)
 
@@ -125,6 +135,32 @@ class MemoryCollection:
             stage = str(item.get("stage") or "unknown")
             counts[stage] = counts.get(stage, 0) + 1
         return MemoryCursor([{"_id": stage, "count": count} for stage, count in counts.items()])
+
+
+class SortCaptureCursor(MemoryCursor):
+    def __init__(self, documents: list[dict[str, Any]]) -> None:
+        super().__init__(documents)
+        self.sort_spec: Any = None
+
+    def sort(self, *args: Any, **_kwargs: Any) -> "SortCaptureCursor":
+        self.sort_spec = args[0] if args else None
+        return self
+
+
+class SortCaptureCollection(MemoryCollection):
+    def __init__(self, documents: list[dict[str, Any]] | None = None) -> None:
+        super().__init__(documents)
+        self.last_cursor: SortCaptureCursor | None = None
+
+    def find(
+        self,
+        query: dict[str, Any],
+        _projection: dict[str, Any] | None = None,
+    ) -> SortCaptureCursor:
+        self.last_cursor = SortCaptureCursor(
+            [item for item in self.documents.values() if self._matches(item, query)]
+        )
+        return self.last_cursor
 
 
 class MemoryManager:
@@ -373,8 +409,8 @@ def test_pipeline_scheduler_fills_configured_concurrency_slots() -> None:
 def test_pipeline_retry_settings_defaults_and_bounds() -> None:
     defaults = PipelineSettingsUpdate()
     assert defaults.country == "JP"
-    assert defaults.extractionFailureRetries == 2
-    assert defaults.paymentFailureRetries == 2
+    assert defaults.extractionFailureRetries == 0
+    assert defaults.paymentFailureRetries == 0
     assert PipelineSettingsUpdate(
         extractionFailureRetries=0,
         paymentFailureRetries=10,
@@ -512,6 +548,8 @@ def test_pipeline_extraction_uses_selected_billing_country_and_reaches_payment_r
         assert stored["stage"] == "payment_ready"
         assert stored["extractionStatus"] == "succeeded"
         assert stored["paymentLink"].endswith("BA-FIXTURE")
+        assert stored["paymentLinkExpiresAt"] > stored["extractedAt"]
+        assert stored["paymentLinkExpiresAt"] <= stored["extractedAt"] + timedelta(minutes=15)
         assert stored["checkoutType"] == "oaics"
         assert service.resources.accounts.documents["account-1"]["checkoutType"] == "oaics"
 
@@ -542,6 +580,96 @@ def test_pipeline_resolves_selected_country_proxy_pools_at_runtime() -> None:
         assert requested == [("TR", "TR-A"), ("JP", "JP-B")]
         assert extractor.payload.checkoutProxy.endswith("tr.proxy.test:8000")
         assert extractor.payload.updateProxy.endswith("jp.proxy.test:8000")
+
+    asyncio.run(exercise())
+
+
+def test_pipeline_limits_protocol_proxy_pool_to_service_capacity() -> None:
+    async def exercise() -> None:
+        service, _, _ = pipeline_service(eligible_account(), eligible_item())
+
+        async def proxy_urls(_country: str, *, group: str | None = None) -> list[str]:
+            assert group is None
+            return [f"http://proxy-{index}.example.test:8000" for index in range(1100)]
+
+        service.resources.enabled_proxy_urls = proxy_urls  # type: ignore[attr-defined]
+        pool = await service._effective_proxy_pool(
+            {"protocolProxyCountry": "GB", "protocolProxyGroup": "", "protocolProxy": ""},
+            "protocol",
+        )
+        assert len(pool.splitlines()) == 500
+        assert pool.splitlines()[-1].endswith("proxy-499.example.test:8000")
+
+    asyncio.run(exercise())
+
+
+def test_pipeline_marks_expired_paypal_link_for_manual_reextract() -> None:
+    async def exercise() -> None:
+        extracted_at = datetime.now(timezone.utc) - timedelta(minutes=16)
+        service, items, _ = pipeline_service(
+            eligible_account(),
+            eligible_item(
+                stage="payment_failed",
+                extractionStatus="succeeded",
+                extractionRetryCount=3,
+                extractedAt=extracted_at,
+                paymentStatus="failed",
+                paymentRetryCount=2,
+                paymentLink="https://www.paypal.com/agreements/approve?ba_token=BA-FIXTURE",
+                paymentError={"code": "protocol_failed", "message": "fixture failure"},
+            ),
+        )
+
+        assert await service._mark_expired_payment_links() == 1
+        stored = items.documents["pipeline-1"]
+        assert stored["stage"] == "payment_failed"
+        assert stored["extractionStatus"] == "succeeded"
+        assert stored["extractionRetryCount"] == 3
+        assert stored["paymentRetryCount"] == 2
+        assert stored["paymentLink"].endswith("BA-FIXTURE")
+        assert stored["paymentLastError"]["code"] == "protocol_failed"
+        assert stored["paymentError"]["code"] == "payment_link_expired"
+        assert stored["logs"][-1]["event"] == "payment_link.expired"
+        assert "手动重新提炼" in stored["logs"][-1]["message"]
+        assert await service._mark_expired_payment_links() == 0
+
+        await service._queue_failed_retries(
+            scheduling_settings(
+                extractionFailureRetries=0,
+                paymentFailureRetries=0,
+            )
+        )
+        assert items.documents["pipeline-1"]["stage"] == "payment_failed"
+
+    asyncio.run(exercise())
+
+
+def test_pipeline_account_logs_include_legacy_failure_with_redaction() -> None:
+    async def exercise() -> None:
+        now = datetime.now(timezone.utc)
+        service, _, _ = pipeline_service(
+            eligible_account(),
+            eligible_item(
+                stage="payment_failed",
+                extractionStatus="succeeded",
+                extractedAt=now - timedelta(minutes=2),
+                paymentStatus="failed",
+                paymentLink="https://www.paypal.com/agreements/approve?ba_token=BA-FIXTURE",
+                paymentError={
+                    "code": "protocol_request_failed",
+                    "message": "http://user:SECRET@proxy.test token=TOKENVALUE pipeline@example.test +819012345678",
+                },
+                updatedAt=now,
+            ),
+        )
+
+        response = await service.item_logs("pipeline-1")
+        rendered = str(response["logs"])
+        assert "protocol_request_failed" in rendered
+        assert "SECRET" not in rendered
+        assert "TOKENVALUE" not in rendered
+        assert "+819012345678" not in rendered
+        assert "pipeline@example.test" not in rendered
 
     asyncio.run(exercise())
 
@@ -622,6 +750,58 @@ def test_pipeline_list_filters_paid_settlement_state() -> None:
     asyncio.run(exercise())
 
 
+def test_paid_pipeline_list_sorts_by_payment_success_time_descending() -> None:
+    async def exercise() -> None:
+        paid_at_old = datetime(2026, 8, 17, 10, 0, tzinfo=timezone.utc)
+        paid_at_new = datetime(2026, 8, 18, 10, 0, tzinfo=timezone.utc)
+        items = SortCaptureCollection(
+            [
+                {
+                    "_id": "paid-old",
+                    "accountId": "account-old",
+                    "email": "old@example.test",
+                    "stage": "paid",
+                    "paidAt": paid_at_old,
+                    "updatedAt": paid_at_new,
+                },
+                {
+                    "_id": "paid-new",
+                    "accountId": "account-new",
+                    "email": "new@example.test",
+                    "stage": "paid",
+                    "paidAt": paid_at_new,
+                    "updatedAt": paid_at_old,
+                },
+            ]
+        )
+        manager = MemoryManager(items)
+        resources = SimpleNamespace(
+            manager=manager,
+            accounts=MemoryCollection(
+                [
+                    eligible_account(_id="account-old", email="old@example.test"),
+                    eligible_account(_id="account-new", email="new@example.test"),
+                ]
+            ),
+        )
+        service = AccountPipelineService(
+            resources,
+            FakeExtractor(),
+            SimpleNamespace(base_url="http://fixture"),
+        )
+
+        await service.list_items(stage="paid")
+
+        assert items.last_cursor is not None
+        assert items.last_cursor.sort_spec == [
+            ("paidAt", -1),
+            ("updatedAt", -1),
+            ("_id", -1),
+        ]
+
+    asyncio.run(exercise())
+
+
 def test_pipeline_paid_overview_and_export_join_mailbox_url(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("API798_AUTH_CODE", "AUTH_FIXTURE")
 
@@ -683,9 +863,26 @@ def test_pipeline_paid_overview_and_export_join_mailbox_url(monkeypatch: pytest.
 def test_pipeline_checks_paid_confirmation_mail_and_persists_status() -> None:
     async def exercise() -> None:
         service, items, _ = pipeline_service(
-            eligible_account(emailAccessUrl="https://mail.example.test/paid"),
+            eligible_account(
+                emailAccessUrl="https://mail.example.test/paid",
+                chatgptPassword="FIXTURE_PASSWORD",
+                totpSecret="JBSWY3DPEHPK3PXP",
+            ),
             eligible_item(stage="paid", paymentStatus="completed"),
         )
+        service.settings_collection.documents["default"] = {
+            "_id": "default",
+            "smsReceiverEnabled": True,
+            "smsReceiverAutoSubmit": True,
+        }
+        submitted: list[str] = []
+
+        async def submit_receiver(payload: Any) -> dict[str, Any]:
+            submitted.extend(payload.ids)
+            items.documents["pipeline-1"]["smsReceiverState"] = "queued"
+            return {"submitted": 1}
+
+        service.submit_paid_to_sms_receiver = submit_receiver  # type: ignore[method-assign]
         service.mail_checker = lambda _url, _email, _paid_at: PaidMailCheckResult(
             status="confirmed",
             subject="ChatGPT - New plan",
@@ -702,6 +899,7 @@ def test_pipeline_checks_paid_confirmation_mail_and_persists_status() -> None:
         assert stored["mailConfirmationStatus"] == "confirmed"
         assert stored["mailConfirmationSubject"] == "ChatGPT - New plan"
         assert stored["mailConfirmationOrderId"] == "sub_fixture"
+        assert submitted == ["pipeline-1"]
 
     asyncio.run(exercise())
 
@@ -710,7 +908,11 @@ def test_pipeline_automatically_confirms_waiting_paid_mail() -> None:
     async def exercise() -> None:
         paid_at = datetime.now(timezone.utc) - timedelta(minutes=1)
         service, items, _ = pipeline_service(
-            eligible_account(emailAccessUrl="https://mail.example.test/paid"),
+            eligible_account(
+                emailAccessUrl="https://mail.example.test/paid",
+                chatgptPassword="FIXTURE_PASSWORD",
+                totpSecret="JBSWY3DPEHPK3PXP",
+            ),
             eligible_item(
                 stage="paid",
                 paymentStatus="completed",
@@ -720,6 +922,19 @@ def test_pipeline_automatically_confirms_waiting_paid_mail() -> None:
                 mailConfirmationNextCheckAt=datetime.now(timezone.utc) - timedelta(seconds=1),
             ),
         )
+        service.settings_collection.documents["default"] = {
+            "_id": "default",
+            "smsReceiverEnabled": True,
+            "smsReceiverAutoSubmit": True,
+        }
+        submitted: list[str] = []
+
+        async def submit_receiver(payload: Any) -> dict[str, Any]:
+            submitted.extend(payload.ids)
+            items.documents["pipeline-1"]["smsReceiverState"] = "queued"
+            return {"submitted": 1}
+
+        service.submit_paid_to_sms_receiver = submit_receiver  # type: ignore[method-assign]
         service.mail_checker = lambda _url, _email, _paid_at: PaidMailCheckResult(
             status="confirmed",
             subject="ChatGPT - New plan",
@@ -734,6 +949,78 @@ def test_pipeline_automatically_confirms_waiting_paid_mail() -> None:
         assert stored["mailConfirmationOrderId"] == "sub_auto_fixture"
         assert stored["mailConfirmationNextCheckAt"] is None
         assert stored["mailConfirmationAttempt"] == 1
+        assert submitted == ["pipeline-1"]
+
+    asyncio.run(exercise())
+
+
+def test_pipeline_auto_receiver_requires_confirmed_mail_and_complete_material() -> None:
+    async def exercise() -> None:
+        service, items, _ = pipeline_service(
+            eligible_account(
+                emailAccessUrl="https://mail.example.test/paid",
+                chatgptPassword="",
+                totpSecret="JBSWY3DPEHPK3PXP",
+            ),
+            eligible_item(
+                stage="paid",
+                paymentStatus="completed",
+                mailConfirmationStatus="waiting",
+            ),
+        )
+        service.settings_collection.documents["default"] = {
+            "_id": "default",
+            "smsReceiverEnabled": True,
+            "smsReceiverAutoSubmit": True,
+        }
+        submitted: list[str] = []
+
+        async def submit_receiver(payload: Any) -> dict[str, Any]:
+            submitted.extend(payload.ids)
+            return {"submitted": 1}
+
+        service.submit_paid_to_sms_receiver = submit_receiver  # type: ignore[method-assign]
+
+        await service._auto_submit_paid_to_sms_receiver("pipeline-1")
+        assert submitted == []
+
+        items.documents["pipeline-1"]["mailConfirmationStatus"] = "confirmed"
+        service.resources.accounts.documents["account-1"]["chatgptPassword"] = "FIXTURE_PASSWORD"
+        await service._auto_submit_paid_to_sms_receiver("pipeline-1")
+        assert submitted == ["pipeline-1"]
+
+    asyncio.run(exercise())
+
+
+def test_pipeline_auto_receiver_picks_up_existing_confirmed_paid_item() -> None:
+    async def exercise() -> None:
+        service, items, _ = pipeline_service(
+            eligible_account(
+                emailAccessUrl="https://mail.example.test/paid",
+                chatgptPassword="FIXTURE_PASSWORD",
+                totpSecret="JBSWY3DPEHPK3PXP",
+            ),
+            eligible_item(
+                stage="paid",
+                paymentStatus="completed",
+                mailConfirmationStatus="confirmed",
+            ),
+        )
+        service.settings_collection.documents["default"] = {
+            "_id": "default",
+            "smsReceiverEnabled": True,
+            "smsReceiverAutoSubmit": True,
+        }
+        submitted: list[str] = []
+
+        async def submit_receiver(payload: Any) -> dict[str, Any]:
+            submitted.extend(payload.ids)
+            items.documents["pipeline-1"]["smsReceiverState"] = "queued"
+            return {"submitted": 1}
+
+        service.submit_paid_to_sms_receiver = submit_receiver  # type: ignore[method-assign]
+        await service._auto_submit_confirmed_paid_to_sms_receiver()
+        assert submitted == ["pipeline-1"]
 
     asyncio.run(exercise())
 
@@ -802,6 +1089,7 @@ def test_pipeline_starts_payment_with_hero_sms_japan_number() -> None:
                 extractionStatus="succeeded",
                 paymentStatus="pending",
                 paymentLink="https://www.paypal.com/agreements/approve?ba_token=BA-FIXTURE",
+                extractedAt=datetime.now(timezone.utc),
                 billingCountry="DE",
             ),
         )
@@ -918,6 +1206,23 @@ class FakePipelineApi:
         self.calls.append(("list", kwargs))
         return {"items": [], "total": 0, "page": kwargs["page"], "pageSize": kwargs["page_size"], "counts": {}}
 
+    async def item_logs(self, item_id: str) -> dict[str, Any]:
+        self.calls.append(("logs", item_id))
+        return {
+            "itemId": item_id,
+            "email": "fixture@example.test",
+            "stage": "payment_failed",
+            "logs": [{
+                "id": "log-1",
+                "timestamp": datetime.now(timezone.utc),
+                "level": "error",
+                "event": "payment.failed",
+                "message": "fixture failure",
+                "code": "protocol_failed",
+                "details": {},
+            }],
+        }
+
     async def paid_stats(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("paid_stats", kwargs))
         return {"total": 2, "today": 1, "last7Days": 2, "terminalTotal": 3, "failed": 1, "successRate": 66.7, "averageHeroSmsPrice": 0.4, "daily": []}
@@ -967,6 +1272,7 @@ def test_pipeline_api_exposes_management_actions(tmp_path: Path) -> None:
     assert settings_response.json()["extractionFailureRetries"] == 3
     assert settings_response.json()["paymentFailureRetries"] == 4
     assert client.get("/api/pipeline?page=2&pageSize=20&stage=paid&q=fixture&settlementState=confirmed").json()["page"] == 2
+    assert client.get("/api/pipeline/pipeline-1/logs").json()["logs"][0]["code"] == "protocol_failed"
     assert client.get("/api/pipeline/paid/stats?days=14").json()["total"] == 2
     assert client.post("/api/pipeline/paid/export", json={"ids": ["pipeline-1"], "query": "fixture"}).json()["count"] == 1
     assert client.post("/api/pipeline/paid/export-status", json={"ids": ["pipeline-1"], "exported": True}).json()["updated"] == 1
@@ -982,6 +1288,7 @@ def test_pipeline_api_exposes_management_actions(tmp_path: Path) -> None:
     assert ("payment", ("pipeline-1", "+819012345678")) in service.calls
     assert ("otp", ("pipeline-1", "123456")) in service.calls
     assert ("paid_stats", {"days": 14}) in service.calls
+    assert ("logs", "pipeline-1") in service.calls
     assert (
         "list",
         {

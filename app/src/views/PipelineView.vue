@@ -5,6 +5,7 @@ import {
   CopyDocument,
   CreditCard,
   Delete,
+  Document,
   Key,
   Operation,
   Refresh,
@@ -18,7 +19,7 @@ import SecretCell from '@/components/SecretCell.vue'
 import { dataGateway } from '@/services/dataGateway'
 import { copyText } from '@/services/exporter'
 import { countryLabel } from '@/services/countries'
-import type { PaymentExtractorOption, PipelineItem, PipelineSettings, PipelineStage, ProxyCountrySummary, ProxyGroupSummary } from '@/types'
+import type { PaymentExtractorOption, PipelineItem, PipelineLogEntry, PipelineSettings, PipelineStage, ProxyCountrySummary, ProxyGroupSummary } from '@/types'
 
 const router = useRouter()
 
@@ -30,6 +31,8 @@ const actionLoading = ref(false)
 const settingsOpen = ref(false)
 const paymentOpen = ref(false)
 const otpOpen = ref(false)
+const logOpen = ref(false)
+const logLoading = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const stage = ref('')
@@ -37,6 +40,8 @@ const search = ref('')
 const selectedIds = ref<string[]>([])
 const paymentTarget = ref<PipelineItem | null>(null)
 const otpTarget = ref<PipelineItem | null>(null)
+const logTarget = ref<PipelineItem | null>(null)
+const accountLogs = ref<PipelineLogEntry[]>([])
 const paymentPhone = ref('')
 const otpValue = ref('')
 const proxyCountries = ref<ProxyCountrySummary[]>([])
@@ -49,8 +54,8 @@ const settings = reactive<PipelineSettings>({
   enabled: false,
   extractionConcurrency: 1,
   paymentConcurrency: 1,
-  extractionFailureRetries: 2,
-  paymentFailureRetries: 2,
+  extractionFailureRetries: 0,
+  paymentFailureRetries: 0,
   country: 'JP',
   checkoutProxy: '',
   updateProxy: '',
@@ -131,6 +136,55 @@ function formatDate(value?: string | null) {
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(value))
+}
+
+function formatLogDate(value?: string | null) {
+  if (!value) return '—'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(new Date(value))
+}
+
+function logTagType(level: PipelineLogEntry['level']) {
+  if (level === 'success') return 'success'
+  if (level === 'warning') return 'warning'
+  if (level === 'error') return 'danger'
+  return 'info'
+}
+
+function paymentLinkCountdown(item: PipelineItem) {
+  if (!item.paymentLink || !item.paymentLinkExpiresAt) return ''
+  const seconds = Math.max(0, Math.ceil((new Date(item.paymentLinkExpiresAt).getTime() - Date.now()) / 1000))
+  if (!seconds) return '链接已过期，请手动重新提炼'
+  const minutes = Math.floor(seconds / 60)
+  return `链接剩余 ${minutes}分${String(seconds % 60).padStart(2, '0')}秒`
+}
+
+function paymentLinkIsExpired(item: PipelineItem) {
+  if (item.paymentLinkExpired) return true
+  if (!item.paymentLinkExpiresAt) return false
+  const expiresAt = Date.parse(item.paymentLinkExpiresAt)
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now()
+}
+
+function canManualReextract(item: PipelineItem) {
+  return item.stage === 'payment_failed'
+    || (item.stage === 'payment_ready' && paymentLinkIsExpired(item))
+}
+
+async function openLogs(item: PipelineItem) {
+  logTarget.value = item
+  accountLogs.value = []
+  logOpen.value = true
+  logLoading.value = true
+  try {
+    const response = await dataGateway.pipelineLogs(item.id)
+    accountLogs.value = response.logs
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '账号日志读取失败')
+  } finally {
+    logLoading.value = false
+  }
 }
 
 function stageLabel(value: string) {
@@ -431,7 +485,17 @@ onBeforeUnmount(() => {
         <el-table-column label="账号" min-width="220">
           <template #default="{ row }">
             <div class="account-cell">
-              <strong>{{ row.email }}</strong>
+              <div class="account-title-row">
+                <strong>{{ row.email }}</strong>
+                <el-button
+                  text
+                  type="primary"
+                  size="small"
+                  :icon="Document"
+                  aria-label="查看账号日志"
+                  @click.stop="openLogs(row)"
+                >日志</el-button>
+              </div>
               <span>注册 {{ formatDate(row.accountCreatedAt) }} · AT {{ formatDate(row.accessTokenExpiresAt) }}</span>
             </div>
           </template>
@@ -486,6 +550,10 @@ onBeforeUnmount(() => {
                   />
                 </el-tooltip>
               </div>
+              <small
+                v-if="paymentLinkCountdown(row)"
+                :class="{ 'error-text': row.paymentLinkExpired || paymentLinkCountdown(row).includes('已过期') }"
+              >{{ paymentLinkCountdown(row) }}</small>
             </div>
           </template>
         </el-table-column>
@@ -502,7 +570,7 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="270" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button
@@ -528,6 +596,11 @@ onBeforeUnmount(() => {
                 v-if="row.stage === 'payment_failed'"
                 text type="warning" @click="retry(row, 'payment')"
               >重试支付</el-button>
+              <el-button
+                v-if="canManualReextract(row)"
+                text type="primary" :icon="Key"
+                @click="retry(row, 'extraction')"
+              >重新提炼</el-button>
               <el-tooltip content="打开邮箱入口">
                 <el-button
                   text
@@ -556,6 +629,41 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <el-drawer
+      v-model="logOpen"
+      :title="`账号日志 · ${logTarget?.email || ''}`"
+      size="620px"
+    >
+      <div v-loading="logLoading" class="account-log-panel">
+        <el-alert
+          type="info"
+          :closable="false"
+          title="日志只记录脱敏后的阶段、错误和重试信息，不保存密码、令牌、代理凭据或验证码。"
+        />
+        <el-empty v-if="!logLoading && accountLogs.length === 0" description="暂无流水线日志" />
+        <el-timeline v-else class="account-log-timeline">
+          <el-timeline-item
+            v-for="entry in accountLogs"
+            :key="entry.id"
+            :timestamp="formatLogDate(entry.timestamp)"
+            placement="top"
+            :type="logTagType(entry.level)"
+          >
+            <div class="account-log-entry">
+              <div class="account-log-heading">
+                <strong>{{ entry.message }}</strong>
+                <el-tag :type="logTagType(entry.level)" effect="plain" size="small">{{ entry.event }}</el-tag>
+              </div>
+              <code v-if="entry.code">{{ entry.code }}</code>
+              <div v-if="Object.keys(entry.details || {}).length" class="account-log-details">
+                <span v-for="(value, key) in entry.details" :key="key">{{ key }}：{{ value }}</span>
+              </div>
+            </div>
+          </el-timeline-item>
+        </el-timeline>
+      </div>
+    </el-drawer>
+
     <el-drawer v-model="settingsOpen" title="流水线配置" size="520px">
       <el-form label-position="top">
         <el-form-item label="自动流水线总开关">
@@ -570,10 +678,10 @@ onBeforeUnmount(() => {
           </el-form-item>
         </div>
         <div class="pipeline-concurrency-grid">
-          <el-form-item label="提链失败重试次数">
+          <el-form-item label="提链失败自动重试（0 = 仅手动）">
             <el-input-number v-model="settings.extractionFailureRetries" :min="0" :max="10" :step="1" controls-position="right" />
           </el-form-item>
-          <el-form-item label="支付失败重试次数">
+          <el-form-item label="支付失败自动重试（0 = 仅手动）">
             <el-input-number v-model="settings.paymentFailureRetries" :min="0" :max="10" :step="1" controls-position="right" />
           </el-form-item>
         </div>
@@ -678,4 +786,5 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .pipeline-page{min-width:0}.pipeline-heading{align-items:center}.heading-actions,.filter-actions,.row-actions,.hero-key-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.pipeline-stats{margin-bottom:14px}.pipeline-filter-band{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.filter-actions .el-input{width:220px}.pipeline-table-panel{overflow:hidden}.account-cell,.status-cell{display:flex;flex-direction:column;gap:4px;min-width:0}.account-cell strong{overflow:hidden;text-overflow:ellipsis;color:var(--text-primary);font-size:12px}.account-cell span,.status-cell small,.hero-key-row span,.legacy-proxy-note{color:var(--text-muted);font-size:10px}.legacy-proxy-note{display:block;margin-top:6px}.status-cell b{font-size:11px}.status-cell .error-text{color:var(--danger)}.payment-link-row{display:flex;align-items:center;gap:4px;min-width:0}.payment-link-text{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--accent);font-size:10px;text-decoration:none}.payment-link-text:hover{text-decoration:underline}.payment-link-row .el-button{flex:0 0 24px;width:24px;height:24px;padding:0}.row-actions{flex-wrap:nowrap}.pagination-row{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;color:var(--text-muted);font-size:10px;border-top:1px solid var(--border-subtle)}.pipeline-concurrency-grid,.hero-number-grid{display:grid;gap:12px}.pipeline-concurrency-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.hero-number-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.pipeline-concurrency-grid .el-input-number,.hero-number-grid .el-input-number{width:100%}@media(max-width:900px){.pipeline-heading{align-items:flex-start}.pipeline-filter-band{align-items:stretch;flex-direction:column}.filter-actions .el-input{width:100%}.pagination-row{align-items:flex-start;flex-direction:column;gap:10px}.pipeline-concurrency-grid,.hero-number-grid{grid-template-columns:1fr}}
+.account-title-row,.account-log-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}.account-title-row strong{flex:1;min-width:0}.account-title-row .el-button{flex:0 0 auto;padding:2px 4px;font-size:10px}.account-log-panel{min-height:180px}.account-log-timeline{margin-top:22px;padding-left:4px}.account-log-entry{display:flex;flex-direction:column;gap:7px;padding:10px 12px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--surface-raised)}.account-log-heading{align-items:flex-start}.account-log-heading strong{font-size:12px;line-height:1.55}.account-log-entry code{color:var(--danger);font-size:10px}.account-log-details{display:flex;gap:6px;flex-wrap:wrap}.account-log-details span{padding:2px 6px;border-radius:4px;background:var(--surface-soft);color:var(--text-muted);font-size:10px}
 </style>

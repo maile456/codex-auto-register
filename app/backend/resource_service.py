@@ -841,6 +841,7 @@ class MongoResourceStore:
         run_id: str,
         chatgpt_password: str = "",
         registration_country: str | None = None,
+        registration_proxy_group: str | None = None,
     ) -> AccountRecord:
         document = {
             "_id": str(uuid4()),
@@ -857,6 +858,9 @@ class MongoResourceStore:
                 normalize_country_code(registration_country)
                 if registration_country
                 else None
+            ),
+            "registrationProxyGroup": (
+                " ".join(str(registration_proxy_group or "").split()) or None
             ),
             "sourceEmailId": source["_id"],
             "accessTokenConfigured": False,
