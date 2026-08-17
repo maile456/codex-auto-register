@@ -1,0 +1,53 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "MongoDB: Start local",
+      "type": "shell",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\start-mongodb.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "FastAPI: Serve",
+      "type": "shell",
+      "command": "${workspaceFolder}\\..\\register_env\\Scripts\\python.exe",
+      "args": ["-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000", "--reload"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "python",
+        "pattern": { "regexp": ".*" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Uvicorn running|Started reloader process",
+          "endsPattern": "Application startup complete"
+        }
+      },
+      "dependsOn": "MongoDB: Start local"
+    },
+    {
+      "label": "Vite: Serve",
+      "type": "shell",
+      "command": "npm.cmd",
+      "args": ["run", "dev"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "typescript",
+        "pattern": { "regexp": ".*" },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "VITE",
+          "endsPattern": "Local:.*http://127.0.0.1:5173"
+        }
+      }
+    }
+  ]
+}

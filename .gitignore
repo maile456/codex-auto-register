@@ -1,0 +1,69 @@
+# Local workspace state
+/.backup/
+/.reference/
+/.tmp/
+/.pytest_cache/
+/__pycache__/
+/artifacts/
+**/artifacts/
+/data/
+/runtime-logs/
+/register_env/
+/mongodb-portable/
+/codex-register-main/
+/scripts/
+
+# Local-only utilities and downloaded archives
+/OAICS_Checker.py
+/FILE_SHA256SUMS.txt
+/SANITIZATION_REPORT.md
+/*.zip
+/*.msi
+/*.log
+/*.sha256
+
+# Secrets and runtime output
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.pfx
+*.key
+*.sqlite
+*.sqlite3
+*.db
+*.jsonl
+**/used_local_card_hashes.txt
+*.pid
+*.log
+logs/
+
+# Python
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv*/
+**/*.py[cod]
+**/htmlcov/
+**/.coverage
+
+# Node / frontend
+**/node_modules/
+**/dist/
+**/coverage/
+**/*.tsbuildinfo
+**/.vite/
+
+# IDE / OS
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# MailCom keeps an empty data directory only
+/mailcom-manager/data/*
+!/mailcom-manager/data/.gitkeep
+/app/mongodb/mongod.yml

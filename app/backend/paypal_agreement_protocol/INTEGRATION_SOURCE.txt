@@ -1,0 +1,3 @@
+Reference: https://github.com/1537271403/paypal-agreement-protocol
+Source commit: 4719066ec6fd56b57a5bd9599758366836c9dc0a
+Vendored for the local AutoRegister sidecar integration.

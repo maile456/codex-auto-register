@@ -1,0 +1,4 @@
+httpx[http2,socks]>=0.27,<1
+loguru>=0.7,<1
+playwright>=1.50,<2
+pproxy>=2.7,<3

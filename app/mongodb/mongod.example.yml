@@ -1,0 +1,18 @@
+# Generated as mongodb/mongod.yml by scripts/install-mongodb-service.ps1.
+storage:
+  dbPath: '<repository-parent>\data\mongodb\db'
+
+systemLog:
+  destination: file
+  logAppend: true
+  path: '<repository-parent>\data\mongodb\mongod.log'
+
+net:
+  bindIp: 127.0.0.1
+  port: 27017
+
+processManagement:
+  windowsService:
+    serviceName: AutoRegisterMongoDB
+    displayName: AutoRegister MongoDB
+    description: Local-only MongoDB service for AutoRegister development

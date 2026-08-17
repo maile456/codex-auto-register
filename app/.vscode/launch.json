@@ -1,0 +1,32 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "FastAPI (debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "python": "${workspaceFolder}\\..\\register_env\\Scripts\\python.exe",
+      "args": ["backend.main:app", "--host", "127.0.0.1", "--port", "8000", "--reload"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "preLaunchTask": "MongoDB: Start local"
+    },
+    {
+      "name": "Vite (browser)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://127.0.0.1:5173/launch",
+      "webRoot": "${workspaceFolder}\\src",
+      "preLaunchTask": "Vite: Serve"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "AutoRegister: Full stack",
+      "configurations": ["FastAPI (debug)", "Vite (browser)"],
+      "stopAll": true
+    }
+  ]
+}

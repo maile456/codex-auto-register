@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>OAI PayPal 提链</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <section id="auth-gate" class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+        <div class="auth-card">
+          <p class="eyebrow">PRIVATE WORKBENCH</p>
+          <h1 id="auth-title">请输入工作台密码</h1>
+          <p>认证通过后才能访问任务和实时状态。</p>
+          <form id="auth-form">
+            <label class="field">
+              <span>密码</span>
+              <input id="auth-password" type="password" autocomplete="current-password" required>
+            </label>
+            <button id="auth-submit" class="primary" type="submit">进入工作台</button>
+            <p id="auth-error" class="form-error" role="alert"></p>
+          </form>
+        </div>
+      </section>
+
+      <div id="workbench" hidden>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">PAYMENT LINK</p>
+          <h1>个人提链工作台</h1>
+        </div>
+        <div class="topbar-actions">
+          <div id="socket-status" class="connection offline">
+            <span class="dot"></span>
+            <span>连接中</span>
+          </div>
+          <button id="logout-button" class="secondary" type="button">退出认证</button>
+        </div>
+      </header>
+
+      <div class="workspace-grid">
+        <section class="panel submit-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>新建任务</h2>
+              <p>粘贴 Access Token，或粘贴包含 access_token / accessToken / token 的 JSON。</p>
+            </div>
+            <span class="quiet">敏感信息不会保存</span>
+          </div>
+
+          <form id="task-form">
+            <label class="field full">
+              <span>Token / JSON</span>
+              <textarea id="credential-input" rows="5" autocomplete="off" spellcheck="false" placeholder="eyJ... 或 {&quot;access_token&quot;: &quot;...&quot;}"></textarea>
+            </label>
+            <div class="credential-tools">
+              <div class="credential-preview" aria-live="polite">
+                <span id="credential-status" class="credential-status">等待输入</span>
+                <span id="account-preview" class="account-preview" hidden>账号：<strong id="account-email"></strong></span>
+              </div>
+              <div class="credential-actions">
+                <button id="batch-import-button" class="secondary" type="button">批量导入账号</button>
+                <button id="extract-token-button" class="secondary" type="button" hidden>提取 access_token</button>
+                <button id="copy-token-button" class="primary" type="button" disabled>复制 access_token</button>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label class="field">
+                <span>国家</span>
+                <select id="country">
+                  <option value="">使用 JSON / 环境变量</option>
+                  <option>GB</option><option>US</option><option selected>BR</option><option>DE</option>
+                  <option>TH</option><option>BA</option><option>PH</option><option>ID</option>
+                  <option>NL</option><option>AE</option><option>DK</option><option>JP</option>
+                  <option>ES</option><option>FI</option><option>FR</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>支付方式</span>
+                <select id="payment-method">
+                  <option value="paypal" selected>PayPal</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Checkout Proxy</span>
+                <textarea id="checkout-proxy" rows="3" autocomplete="off" spellcheck="false" placeholder="每行一条；支持 IPRocket 全部导出格式及 HTTP/SOCKS5 URL"></textarea>
+                <small id="checkout-proxy-count" class="proxy-count">已保存 0 条</small>
+              </label>
+              <label class="field">
+                <span>IPRocket 代理订阅</span>
+                <input id="proxy-source-url" type="url" autocomplete="off" spellcheck="false" placeholder="粘贴 getLink 订阅地址">
+                <button id="refresh-proxy-source" class="secondary" type="button">读取并保存代理</button>
+                <small id="proxy-source-status" class="proxy-count"></small>
+              </label>
+              <label class="check-field">
+                <input id="rotate-checkout-proxy" type="checkbox" checked>
+                <span>自动轮换 Checkout Proxy IP</span>
+              </label>
+              <label class="field">
+                <span>Update Proxy</span>
+                <textarea id="update-proxy" rows="3" autocomplete="off" spellcheck="false" placeholder="每行一条；自动保存并轮换 IPRocket 会话"></textarea>
+                <small id="update-proxy-count" class="proxy-count">已保存 0 条</small>
+              </label>
+              <label class="check-field">
+                <input id="rotate-update-proxy" type="checkbox" checked>
+                <span>自动轮换 Update Proxy IP</span>
+              </label>
+              <input id="oaics-only" type="checkbox" hidden disabled>
+            </div>
+
+            <div class="form-actions">
+              <label class="check-field">
+                <input id="apply-update" type="checkbox" checked>
+                <span>执行 Checkout Update</span>
+              </label>
+              <button id="submit-button" class="primary" type="submit">提交任务</button>
+            </div>
+            <p id="form-error" class="form-error" role="alert"></p>
+          </form>
+        </section>
+
+        <section class="tasks-panel">
+          <div class="section-heading">
+            <div>
+              <h2>任务状态</h2>
+              <p>所有运行中任务会通过 WebSocket 实时更新。</p>
+            </div>
+            <div class="task-overview">
+              <div id="task-stats" class="task-stats" aria-live="polite">
+                <span>运行 <strong id="running-count">0</strong></span>
+                <span>成功 <strong id="succeeded-count">0</strong></span>
+                <span>失败 <strong id="failed-count">0</strong></span>
+                <span>成功率 <strong id="success-rate">—</strong></span>
+              </div>
+              <div class="task-toolbar">
+                <div id="task-filters" class="task-filters" role="tablist" aria-label="任务筛选">
+                  <button class="filter-button active" data-filter="all" role="tab" aria-selected="true">全部</button>
+                  <button class="filter-button" data-filter="running" role="tab" aria-selected="false">运行</button>
+                  <button class="filter-button" data-filter="succeeded" role="tab" aria-selected="false">成功</button>
+                  <button class="filter-button" data-filter="failed" role="tab" aria-selected="false">失败</button>
+                </div>
+                <div id="view-toggle" class="view-toggle" role="tablist" aria-label="任务显示方式">
+                  <button class="view-button active" data-view-mode="card" role="tab" aria-selected="true">卡片</button>
+                  <button class="view-button" data-view-mode="list" role="tab" aria-selected="false">列表</button>
+                </div>
+                <div class="export-toolbar">
+                  <label class="select-all-field">
+                    <input id="select-all-succeeded" type="checkbox" disabled>
+                    <span>全选成功任务</span>
+                  </label>
+                  <span id="selected-task-count" class="quiet" aria-live="polite">已选 0 个</span>
+                  <button id="export-csv-button" class="secondary" type="button" disabled>导出 CSV</button>
+                  <button id="retry-network-failed-tasks" class="secondary bulk-retry-button" type="button" disabled>重试网络失败</button>
+                  <button id="clear-failed-tasks" class="secondary bulk-delete-button" type="button" disabled>清空失败任务</button>
+                  <button id="clear-succeeded-tasks" class="secondary bulk-delete-button" type="button" disabled>清空已完成任务</button>
+                </div>
+                <span id="task-count" class="quiet">0 个任务</span>
+              </div>
+            </div>
+          </div>
+          <section id="task-list" class="task-list" aria-live="polite">
+            <div id="empty-state" class="empty-state">还没有任务</div>
+          </section>
+        </section>
+      </div>
+      </div>
+
+      <div id="task-details-modal" class="task-modal" hidden role="dialog" aria-modal="true" aria-labelledby="task-details-title">
+        <div class="task-modal-backdrop" data-modal-close></div>
+        <section class="task-modal-dialog" role="document">
+          <header class="task-modal-header">
+            <h2 id="task-details-title">任务详情</h2>
+            <button id="task-details-close" class="secondary" type="button" aria-label="关闭详情">关闭</button>
+          </header>
+          <div id="task-details-content" class="task-modal-content"></div>
+        </section>
+      </div>
+
+      <div id="batch-import-modal" class="task-modal" hidden role="dialog" aria-modal="true" aria-labelledby="batch-import-title">
+        <div class="task-modal-backdrop" data-batch-modal-close></div>
+        <section class="task-modal-dialog batch-import-dialog" role="document">
+          <header class="task-modal-header">
+            <h2 id="batch-import-title">批量导入账号</h2>
+            <button id="batch-import-close" class="secondary" type="button" aria-label="关闭批量导入">关闭</button>
+          </header>
+          <p class="batch-import-help">每行粘贴一个 Access Token 或 JSON。系统会检查 Token、按账号邮箱去重，再按当前任务参数逐个创建任务。</p>
+          <label class="field">
+            <span>账号 Token / JSON</span>
+            <textarea id="batch-import-input" rows="9" autocomplete="off" spellcheck="false" placeholder="eyJ...&#10;{&quot;access_token&quot;: &quot;...&quot;}"></textarea>
+          </label>
+          <p id="batch-import-summary" class="batch-import-summary" aria-live="polite">粘贴账号后点击“检查账号”</p>
+          <div id="batch-import-results" class="batch-import-results" aria-live="polite"><p class="quiet batch-import-empty">检查结果会显示在这里</p></div>
+          <div class="task-modal-actions batch-import-actions">
+            <span id="batch-import-completion" class="batch-import-completion" aria-live="polite" hidden></span>
+            <button id="batch-import-validate" class="secondary" type="button">检查账号</button>
+            <button id="batch-import-submit" class="primary" type="button" disabled>批量提交</button>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  </body>
+</html>

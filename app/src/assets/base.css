@@ -1,0 +1,63 @@
+:root {
+  color-scheme: dark;
+  --bg-canvas: #080b11;
+  --bg-sidebar: #0b0f17;
+  --bg-surface: #101722;
+  --bg-surface-strong: #151e2c;
+  --bg-elevated: #192436;
+  --border-subtle: #222d3d;
+  --border-strong: #314158;
+  --text-primary: #f2f6fc;
+  --text-secondary: #93a4ba;
+  --text-muted: #64748b;
+  --accent: #32c5ff;
+  --accent-strong: #1aa7ec;
+  --success: #45d68a;
+  --warning: #ffbd4a;
+  --danger: #ff647c;
+  --sidebar-width: 236px;
+  --sidebar-collapsed: 76px;
+  --shadow-panel: 0 18px 55px rgb(0 0 0 / 18%);
+  font-family:
+    Inter, "SF Pro Display", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  color: var(--text-primary);
+  background:
+    radial-gradient(circle at 80% -20%, rgb(50 197 255 / 9%), transparent 34rem),
+    var(--bg-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

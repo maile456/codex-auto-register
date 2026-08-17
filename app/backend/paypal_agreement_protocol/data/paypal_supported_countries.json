@@ -1,0 +1,1583 @@
+{
+  "source": "https://developer.paypal.com/reference/country-codes/",
+  "generated_at": 1784528386.8824918,
+  "count": 197,
+  "countries": [
+    {
+      "code": "AE",
+      "name_en": "United Arab Emirates",
+      "name_zh": "阿拉伯联合酋长国",
+      "calling_code": "+971",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "AU",
+      "name_en": "Australia",
+      "name_zh": "澳大利亚",
+      "calling_code": "+61",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "BR",
+      "name_en": "Brazil",
+      "name_zh": "巴西",
+      "calling_code": "+55",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "CA",
+      "name_en": "Canada",
+      "name_zh": "加拿大",
+      "calling_code": "+1",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "GB",
+      "name_en": "United Kingdom",
+      "name_zh": "英国",
+      "calling_code": "+44",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "ID",
+      "name_en": "Indonesia",
+      "name_zh": "印度尼西亚",
+      "calling_code": "+62",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "JP",
+      "name_en": "Japan",
+      "name_zh": "日本",
+      "calling_code": "+81",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "MX",
+      "name_en": "Mexico",
+      "name_zh": "墨西哥",
+      "calling_code": "+52",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "PH",
+      "name_en": "Philippines",
+      "name_zh": "菲律宾",
+      "calling_code": "+63",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "TH",
+      "name_en": "Thailand",
+      "name_zh": "泰国",
+      "calling_code": "+66",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "TW",
+      "name_en": "Taiwan",
+      "name_zh": "台湾",
+      "calling_code": "+886",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "US",
+      "name_en": "United States",
+      "name_zh": "美国",
+      "calling_code": "+1",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "AD",
+      "name_en": "Andorra",
+      "name_zh": "安道尔",
+      "calling_code": "+376",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "AG",
+      "name_en": "Antigua & Barbuda",
+      "name_zh": "安提瓜和巴布达",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "AI",
+      "name_en": "Anguilla",
+      "name_zh": "安圭拉",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "AL",
+      "name_en": "Albania",
+      "name_zh": "阿尔巴尼亚",
+      "calling_code": "+355",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "AM",
+      "name_en": "Armenia",
+      "name_zh": "亚美尼亚",
+      "calling_code": "+374",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "AO",
+      "name_en": "Angola",
+      "name_zh": "安哥拉",
+      "calling_code": "+244",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "AR",
+      "name_en": "Argentina",
+      "name_zh": "阿根廷",
+      "calling_code": "+54",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "AT",
+      "name_en": "Austria",
+      "name_zh": "奥地利",
+      "calling_code": "+43",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "AW",
+      "name_en": "Aruba",
+      "name_zh": "阿鲁巴",
+      "calling_code": "+297",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "AZ",
+      "name_en": "Azerbaijan",
+      "name_zh": "阿塞拜疆",
+      "calling_code": "+994",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BA",
+      "name_en": "Bosnia & Herzegovina",
+      "name_zh": "波斯尼亚和黑塞哥维那",
+      "calling_code": "+387",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BB",
+      "name_en": "Barbados",
+      "name_zh": "巴巴多斯",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BE",
+      "name_en": "Belgium",
+      "name_zh": "比利时",
+      "calling_code": "+32",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "BF",
+      "name_en": "Burkina Faso",
+      "name_zh": "布基纳法索",
+      "calling_code": "+226",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BG",
+      "name_en": "Bulgaria",
+      "name_zh": "保加利亚",
+      "calling_code": "+359",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BH",
+      "name_en": "Bahrain",
+      "name_zh": "巴林",
+      "calling_code": "+973",
+      "verified": true,
+      "schema_cached": true
+    },
+    {
+      "code": "BI",
+      "name_en": "Burundi",
+      "name_zh": "布隆迪",
+      "calling_code": "+257",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BJ",
+      "name_en": "Benin",
+      "name_zh": "贝宁",
+      "calling_code": "+229",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BM",
+      "name_en": "Bermuda",
+      "name_zh": "百慕大",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BN",
+      "name_en": "Brunei",
+      "name_zh": "文莱",
+      "calling_code": "+673",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BO",
+      "name_en": "Bolivia",
+      "name_zh": "玻利维亚",
+      "calling_code": "+591",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BS",
+      "name_en": "Bahamas",
+      "name_zh": "巴哈马",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BT",
+      "name_en": "Bhutan",
+      "name_zh": "不丹",
+      "calling_code": "+975",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BW",
+      "name_en": "Botswana",
+      "name_zh": "博茨瓦纳",
+      "calling_code": "+267",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BY",
+      "name_en": "Belarus",
+      "name_zh": "白俄罗斯",
+      "calling_code": "+375",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "BZ",
+      "name_en": "Belize",
+      "name_zh": "伯利兹",
+      "calling_code": "+501",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CD",
+      "name_en": "Congo - Kinshasa",
+      "name_zh": "刚果（金）",
+      "calling_code": "+243",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CG",
+      "name_en": "Congo - Brazzaville",
+      "name_zh": "刚果（布）",
+      "calling_code": "+242",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CH",
+      "name_en": "Switzerland",
+      "name_zh": "瑞士",
+      "calling_code": "+41",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "CK",
+      "name_en": "Cook Islands",
+      "name_zh": "库克群岛",
+      "calling_code": "+682",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CL",
+      "name_en": "Chile",
+      "name_zh": "智利",
+      "calling_code": "+56",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "CM",
+      "name_en": "Cameroon",
+      "name_zh": "喀麦隆",
+      "calling_code": "+237",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CO",
+      "name_en": "Colombia",
+      "name_zh": "哥伦比亚",
+      "calling_code": "+57",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "CR",
+      "name_en": "Costa Rica",
+      "name_zh": "哥斯达黎加",
+      "calling_code": "+506",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CV",
+      "name_en": "Cape Verde",
+      "name_zh": "佛得角",
+      "calling_code": "+238",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CY",
+      "name_en": "Cyprus",
+      "name_zh": "塞浦路斯",
+      "calling_code": "+357",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "CZ",
+      "name_en": "Czech Republic",
+      "name_zh": "捷克",
+      "calling_code": "+420",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "DE",
+      "name_en": "Germany",
+      "name_zh": "德国",
+      "calling_code": "+49",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "DJ",
+      "name_en": "Djibouti",
+      "name_zh": "吉布提",
+      "calling_code": "+253",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "DK",
+      "name_en": "Denmark",
+      "name_zh": "丹麦",
+      "calling_code": "+45",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "DM",
+      "name_en": "Dominica",
+      "name_zh": "多米尼克",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "DO",
+      "name_en": "Dominican Republic",
+      "name_zh": "多米尼加共和国",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "DZ",
+      "name_en": "Algeria",
+      "name_zh": "阿尔及利亚",
+      "calling_code": "+213",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "EC",
+      "name_en": "Ecuador",
+      "name_zh": "厄瓜多尔",
+      "calling_code": "+593",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "EE",
+      "name_en": "Estonia",
+      "name_zh": "爱沙尼亚",
+      "calling_code": "+372",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "EG",
+      "name_en": "Egypt",
+      "name_zh": "埃及",
+      "calling_code": "+20",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "ER",
+      "name_en": "Eritrea",
+      "name_zh": "厄立特里亚",
+      "calling_code": "+291",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "ES",
+      "name_en": "Spain",
+      "name_zh": "西班牙",
+      "calling_code": "+34",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "ET",
+      "name_en": "Ethiopia",
+      "name_zh": "埃塞俄比亚",
+      "calling_code": "+251",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "FI",
+      "name_en": "Finland",
+      "name_zh": "芬兰",
+      "calling_code": "+358",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "FJ",
+      "name_en": "Fiji",
+      "name_zh": "斐济",
+      "calling_code": "+679",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "FK",
+      "name_en": "Falkland Islands",
+      "name_zh": "福克兰群岛",
+      "calling_code": "+500",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "FM",
+      "name_en": "Micronesia",
+      "name_zh": "密克罗尼西亚",
+      "calling_code": "+691",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "FO",
+      "name_en": "Faroe Islands",
+      "name_zh": "法罗群岛",
+      "calling_code": "+298",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "FR",
+      "name_en": "France",
+      "name_zh": "法国",
+      "calling_code": "+33",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "GA",
+      "name_en": "Gabon",
+      "name_zh": "加蓬",
+      "calling_code": "+241",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GD",
+      "name_en": "Grenada",
+      "name_zh": "格林纳达",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GE",
+      "name_en": "Georgia",
+      "name_zh": "格鲁吉亚",
+      "calling_code": "+995",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GF",
+      "name_en": "French Guiana",
+      "name_zh": "法属圭亚那",
+      "calling_code": "+594",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GI",
+      "name_en": "Gibraltar",
+      "name_zh": "直布罗陀",
+      "calling_code": "+350",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GL",
+      "name_en": "Greenland",
+      "name_zh": "格陵兰",
+      "calling_code": "+299",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GM",
+      "name_en": "Gambia",
+      "name_zh": "冈比亚",
+      "calling_code": "+220",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GN",
+      "name_en": "Guinea",
+      "name_zh": "几内亚",
+      "calling_code": "+224",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GP",
+      "name_en": "Guadeloupe",
+      "name_zh": "瓜德罗普",
+      "calling_code": "+590",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GR",
+      "name_en": "Greece",
+      "name_zh": "希腊",
+      "calling_code": "+30",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "GT",
+      "name_en": "Guatemala",
+      "name_zh": "危地马拉",
+      "calling_code": "+502",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GW",
+      "name_en": "Guinea-Bissau",
+      "name_zh": "几内亚比绍",
+      "calling_code": "+245",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "GY",
+      "name_en": "Guyana",
+      "name_zh": "圭亚那",
+      "calling_code": "+592",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "HK",
+      "name_en": "Hong Kong Sar China",
+      "name_zh": "中国香港特别行政区",
+      "calling_code": "+852",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "HN",
+      "name_en": "Honduras",
+      "name_zh": "洪都拉斯",
+      "calling_code": "+504",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "HR",
+      "name_en": "Croatia",
+      "name_zh": "克罗地亚",
+      "calling_code": "+385",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "HU",
+      "name_en": "Hungary",
+      "name_zh": "匈牙利",
+      "calling_code": "+36",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "IE",
+      "name_en": "Ireland",
+      "name_zh": "爱尔兰",
+      "calling_code": "+353",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "IL",
+      "name_en": "Israel",
+      "name_zh": "以色列",
+      "calling_code": "+972",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "IN",
+      "name_en": "India",
+      "name_zh": "印度",
+      "calling_code": "+91",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "IS",
+      "name_en": "Iceland",
+      "name_zh": "冰岛",
+      "calling_code": "+354",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "IT",
+      "name_en": "Italy",
+      "name_zh": "意大利",
+      "calling_code": "+39",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "JM",
+      "name_en": "Jamaica",
+      "name_zh": "牙买加",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "JO",
+      "name_en": "Jordan",
+      "name_zh": "约旦",
+      "calling_code": "+962",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KE",
+      "name_en": "Kenya",
+      "name_zh": "肯尼亚",
+      "calling_code": "+254",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KG",
+      "name_en": "Kyrgyzstan",
+      "name_zh": "吉尔吉斯斯坦",
+      "calling_code": "+996",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KH",
+      "name_en": "Cambodia",
+      "name_zh": "柬埔寨",
+      "calling_code": "+855",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KI",
+      "name_en": "Kiribati",
+      "name_zh": "基里巴斯",
+      "calling_code": "+686",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KM",
+      "name_en": "Comoros",
+      "name_zh": "科摩罗",
+      "calling_code": "+269",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KN",
+      "name_en": "St. Kitts & Nevis",
+      "name_zh": "圣基茨和尼维斯",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KR",
+      "name_en": "South Korea",
+      "name_zh": "韩国",
+      "calling_code": "+82",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "KW",
+      "name_en": "Kuwait",
+      "name_zh": "科威特",
+      "calling_code": "+965",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KY",
+      "name_en": "Cayman Islands",
+      "name_zh": "开曼群岛",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "KZ",
+      "name_en": "Kazakhstan",
+      "name_zh": "哈萨克斯坦",
+      "calling_code": "+7",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LA",
+      "name_en": "Laos",
+      "name_zh": "老挝",
+      "calling_code": "+856",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LC",
+      "name_en": "St. Lucia",
+      "name_zh": "圣卢西亚",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LI",
+      "name_en": "Liechtenstein",
+      "name_zh": "列支敦士登",
+      "calling_code": "+423",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LK",
+      "name_en": "Sri Lanka",
+      "name_zh": "斯里兰卡",
+      "calling_code": "+94",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LS",
+      "name_en": "Lesotho",
+      "name_zh": "莱索托",
+      "calling_code": "+266",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LT",
+      "name_en": "Lithuania",
+      "name_zh": "立陶宛",
+      "calling_code": "+370",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LU",
+      "name_en": "Luxembourg",
+      "name_zh": "卢森堡",
+      "calling_code": "+352",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "LV",
+      "name_en": "Latvia",
+      "name_zh": "拉脱维亚",
+      "calling_code": "+371",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MA",
+      "name_en": "Morocco",
+      "name_zh": "摩洛哥",
+      "calling_code": "+212",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MC",
+      "name_en": "Monaco",
+      "name_zh": "摩纳哥",
+      "calling_code": "+377",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MD",
+      "name_en": "Moldova",
+      "name_zh": "摩尔多瓦",
+      "calling_code": "+373",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "ME",
+      "name_en": "Montenegro",
+      "name_zh": "黑山",
+      "calling_code": "+382",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MG",
+      "name_en": "Madagascar",
+      "name_zh": "马达加斯加",
+      "calling_code": "+261",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MH",
+      "name_en": "Marshall Islands",
+      "name_zh": "马绍尔群岛",
+      "calling_code": "+692",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MK",
+      "name_en": "Macedonia",
+      "name_zh": "北马其顿",
+      "calling_code": "+389",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "ML",
+      "name_en": "Mali",
+      "name_zh": "马里",
+      "calling_code": "+223",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MN",
+      "name_en": "Mongolia",
+      "name_zh": "蒙古",
+      "calling_code": "+976",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MQ",
+      "name_en": "Martinique",
+      "name_zh": "马提尼克",
+      "calling_code": "+596",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MR",
+      "name_en": "Mauritania",
+      "name_zh": "毛里塔尼亚",
+      "calling_code": "+222",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MS",
+      "name_en": "Montserrat",
+      "name_zh": "蒙特塞拉特",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MT",
+      "name_en": "Malta",
+      "name_zh": "马耳他",
+      "calling_code": "+356",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MU",
+      "name_en": "Mauritius",
+      "name_zh": "毛里求斯",
+      "calling_code": "+230",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MV",
+      "name_en": "Maldives",
+      "name_zh": "马尔代夫",
+      "calling_code": "+960",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MW",
+      "name_en": "Malawi",
+      "name_zh": "马拉维",
+      "calling_code": "+265",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "MY",
+      "name_en": "Malaysia",
+      "name_zh": "马来西亚",
+      "calling_code": "+60",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "MZ",
+      "name_en": "Mozambique",
+      "name_zh": "莫桑比克",
+      "calling_code": "+258",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NA",
+      "name_en": "Namibia",
+      "name_zh": "纳米比亚",
+      "calling_code": "+264",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NC",
+      "name_en": "New Caledonia",
+      "name_zh": "新喀里多尼亚",
+      "calling_code": "+687",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NE",
+      "name_en": "Niger",
+      "name_zh": "尼日尔",
+      "calling_code": "+227",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NF",
+      "name_en": "Norfolk Island",
+      "name_zh": "诺福克岛",
+      "calling_code": "+672",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NG",
+      "name_en": "Nigeria",
+      "name_zh": "尼日利亚",
+      "calling_code": "+234",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NI",
+      "name_en": "Nicaragua",
+      "name_zh": "尼加拉瓜",
+      "calling_code": "+505",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NL",
+      "name_en": "Netherlands",
+      "name_zh": "荷兰",
+      "calling_code": "+31",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "NO",
+      "name_en": "Norway",
+      "name_zh": "挪威",
+      "calling_code": "+47",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "NP",
+      "name_en": "Nepal",
+      "name_zh": "尼泊尔",
+      "calling_code": "+977",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NR",
+      "name_en": "Nauru",
+      "name_zh": "瑙鲁",
+      "calling_code": "+674",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NU",
+      "name_en": "Niue",
+      "name_zh": "纽埃",
+      "calling_code": "+683",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "NZ",
+      "name_en": "New Zealand",
+      "name_zh": "新西兰",
+      "calling_code": "+64",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "OM",
+      "name_en": "Oman",
+      "name_zh": "阿曼",
+      "calling_code": "+968",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "PA",
+      "name_en": "Panama",
+      "name_zh": "巴拿马",
+      "calling_code": "+507",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "PE",
+      "name_en": "Peru",
+      "name_zh": "秘鲁",
+      "calling_code": "+51",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "PF",
+      "name_en": "French Polynesia",
+      "name_zh": "法属波利尼西亚",
+      "calling_code": "+689",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "PG",
+      "name_en": "Papua New Guinea",
+      "name_zh": "巴布亚新几内亚",
+      "calling_code": "+675",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "PL",
+      "name_en": "Poland",
+      "name_zh": "波兰",
+      "calling_code": "+48",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "PM",
+      "name_en": "St. Pierre & Miquelon",
+      "name_zh": "圣皮埃尔和密克隆群岛",
+      "calling_code": "+508",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "PN",
+      "name_en": "Pitcairn Islands",
+      "name_zh": "皮特凯恩群岛",
+      "calling_code": "",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "PT",
+      "name_en": "Portugal",
+      "name_zh": "葡萄牙",
+      "calling_code": "+351",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "PW",
+      "name_en": "Palau",
+      "name_zh": "帕劳",
+      "calling_code": "+680",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "PY",
+      "name_en": "Paraguay",
+      "name_zh": "巴拉圭",
+      "calling_code": "+595",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "QA",
+      "name_en": "Qatar",
+      "name_zh": "卡塔尔",
+      "calling_code": "+974",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "RO",
+      "name_en": "Romania",
+      "name_zh": "罗马尼亚",
+      "calling_code": "+40",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "RS",
+      "name_en": "Serbia",
+      "name_zh": "塞尔维亚",
+      "calling_code": "+381",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "RU",
+      "name_en": "Russia",
+      "name_zh": "俄罗斯",
+      "calling_code": "+7",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "RW",
+      "name_en": "Rwanda",
+      "name_zh": "卢旺达",
+      "calling_code": "+250",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SA",
+      "name_en": "Saudi Arabia",
+      "name_zh": "沙特阿拉伯",
+      "calling_code": "+966",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "SB",
+      "name_en": "Solomon Islands",
+      "name_zh": "所罗门群岛",
+      "calling_code": "+677",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SC",
+      "name_en": "Seychelles",
+      "name_zh": "塞舌尔",
+      "calling_code": "+248",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SE",
+      "name_en": "Sweden",
+      "name_zh": "瑞典",
+      "calling_code": "+46",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "SG",
+      "name_en": "Singapore",
+      "name_zh": "新加坡",
+      "calling_code": "+65",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "SH",
+      "name_en": "St. Helena",
+      "name_zh": "圣赫勒拿",
+      "calling_code": "+290",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SI",
+      "name_en": "Slovenia",
+      "name_zh": "斯洛文尼亚",
+      "calling_code": "+386",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SJ",
+      "name_en": "Svalbard & Jan Mayen",
+      "name_zh": "斯瓦尔巴和扬马延",
+      "calling_code": "+47",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SK",
+      "name_en": "Slovakia",
+      "name_zh": "斯洛伐克",
+      "calling_code": "+421",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SL",
+      "name_en": "Sierra Leone",
+      "name_zh": "塞拉利昂",
+      "calling_code": "+232",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SM",
+      "name_en": "San Marino",
+      "name_zh": "圣马力诺",
+      "calling_code": "+378",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SN",
+      "name_en": "Senegal",
+      "name_zh": "塞内加尔",
+      "calling_code": "+221",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SO",
+      "name_en": "Somalia",
+      "name_zh": "索马里",
+      "calling_code": "+252",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SR",
+      "name_en": "Suriname",
+      "name_zh": "苏里南",
+      "calling_code": "+597",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SV",
+      "name_en": "El Salvador",
+      "name_zh": "萨尔瓦多",
+      "calling_code": "+503",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "SZ",
+      "name_en": "Swaziland",
+      "name_zh": "斯威士兰",
+      "calling_code": "+268",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TC",
+      "name_en": "Turks & Caicos Islands",
+      "name_zh": "特克斯和凯科斯群岛",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TD",
+      "name_en": "Chad",
+      "name_zh": "乍得",
+      "calling_code": "+235",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TG",
+      "name_en": "Togo",
+      "name_zh": "多哥",
+      "calling_code": "+228",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TJ",
+      "name_en": "Tajikistan",
+      "name_zh": "塔吉克斯坦",
+      "calling_code": "+992",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TM",
+      "name_en": "Turkmenistan",
+      "name_zh": "土库曼斯坦",
+      "calling_code": "+993",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TN",
+      "name_en": "Tunisia",
+      "name_zh": "突尼斯",
+      "calling_code": "+216",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TO",
+      "name_en": "Tonga",
+      "name_zh": "汤加",
+      "calling_code": "+676",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TT",
+      "name_en": "Trinidad & Tobago",
+      "name_zh": "特立尼达和多巴哥",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TV",
+      "name_en": "Tuvalu",
+      "name_zh": "图瓦卢",
+      "calling_code": "+688",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "TZ",
+      "name_en": "Tanzania",
+      "name_zh": "坦桑尼亚",
+      "calling_code": "+255",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "UA",
+      "name_en": "Ukraine",
+      "name_zh": "乌克兰",
+      "calling_code": "+380",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "UG",
+      "name_en": "Uganda",
+      "name_zh": "乌干达",
+      "calling_code": "+256",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "UY",
+      "name_en": "Uruguay",
+      "name_zh": "乌拉圭",
+      "calling_code": "+598",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "VA",
+      "name_en": "Vatican City",
+      "name_zh": "梵蒂冈",
+      "calling_code": "+39",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "VC",
+      "name_en": "St. Vincent & Grenadines",
+      "name_zh": "圣文森特和格林纳丁斯",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "VE",
+      "name_en": "Venezuela",
+      "name_zh": "委内瑞拉",
+      "calling_code": "+58",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "VG",
+      "name_en": "British Virgin Islands",
+      "name_zh": "英属维尔京群岛",
+      "calling_code": "+1",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "VN",
+      "name_en": "Vietnam",
+      "name_zh": "越南",
+      "calling_code": "+84",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "VU",
+      "name_en": "Vanuatu",
+      "name_zh": "瓦努阿图",
+      "calling_code": "+678",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "WF",
+      "name_en": "Wallis & Futuna",
+      "name_zh": "瓦利斯和富图纳",
+      "calling_code": "+681",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "WS",
+      "name_en": "Samoa",
+      "name_zh": "萨摩亚",
+      "calling_code": "+685",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "YE",
+      "name_en": "Yemen",
+      "name_zh": "也门",
+      "calling_code": "+967",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "YT",
+      "name_en": "Mayotte",
+      "name_zh": "马约特",
+      "calling_code": "+262",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "ZA",
+      "name_en": "South Africa",
+      "name_zh": "南非",
+      "calling_code": "+27",
+      "verified": false,
+      "schema_cached": true
+    },
+    {
+      "code": "ZM",
+      "name_en": "Zambia",
+      "name_zh": "赞比亚",
+      "calling_code": "+260",
+      "verified": false,
+      "schema_cached": false
+    },
+    {
+      "code": "ZW",
+      "name_en": "Zimbabwe",
+      "name_zh": "津巴布韦",
+      "calling_code": "+263",
+      "verified": false,
+      "schema_cached": false
+    }
+  ]
+}

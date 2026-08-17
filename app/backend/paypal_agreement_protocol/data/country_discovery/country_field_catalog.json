@@ -1,0 +1,1632 @@
+{
+  "AR": {
+    "country": "AR",
+    "locale": "es_AR",
+    "language": "es",
+    "currency": "ARS",
+    "calling_code": "+54",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 8,
+        "min_length": null,
+        "pattern": "([A-HJ-NP-Z])?\\d{4}([A-Z]{3})?"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0?(?:(11|2(?:2(?:02?|[13]|2[13-79]|4[1-6]|5[2457]|6[124-8]|7[1-4]|8[13-6]|9[1267])|3(?:02?|1[467]|2[03-6]|3[13-8]|[49][2-6]|5[2-8]|[67])|4(?:7[3-578]|9)|6(?:[0136]|2[24-6]|4[6-8]?|5[15-8])|80|9(?:0[1-3]|[19]|2\\d|3[1-6]|4[02568]?|5[2-4]|6[2-46]|72?|8[23]?))|3(?:3(?:2[79]|6|8[2578])|4(?:0[0-24-9]|[12]|3[5-8]?|4[24-7]|5[4-68]?|6[02-9]|7[126]|8[2379]?|9[1-36-8])|5(?:1|2[1245]|3[237]?|4[1-46-9]|6[2-4]|7[1-6]|8[2-5]?)|6[24]|7(?:[069]|1[1568]|2[15]|3[145]|4[13]|5[14-8]|7[2-57]|8[126])|8(?:[01]|2[15-7]|3[2578]?|4[13-6]|5[4-8]?|6[1-357-9]|7[36-8]?|8[5-8]?|9[124])))15)?\\d{6,10})|(0)?((?:11|[89]\\d\\d)\\d{8}|[2368]\\d{9})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "AT": {
+    "country": "AT",
+    "locale": "de_AT",
+    "language": "de",
+    "currency": "EUR",
+    "calling_code": "+43",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 4,
+        "min_length": null,
+        "pattern": "\\d{4}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0)?(1\\d{3,12}|2\\d{6,12}|43(?:(?:0\\d|5[02-9])\\d{3,9}|2\\d{4,5}|[3467]\\d{4}|8\\d{4,6}|9\\d{4,7})|5\\d{4,12}|8\\d{7,12}|9\\d{8,12}|(?:[367]\\d|4[0-24-9])\\d{4,11})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "BE": {
+    "country": "BE",
+    "locale": "nl_BE",
+    "language": "nl",
+    "currency": "EUR",
+    "calling_code": "+32",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 4,
+        "min_length": null,
+        "pattern": "[1-9]\\d{3}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "0000 00 00 00",
+    "phone_pattern": "^(0)?(4\\d{8}|[1-9]\\d{7})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "CA": {
+    "country": "CA",
+    "locale": "en_CA",
+    "language": "en",
+    "currency": "CAD",
+    "calling_code": "+1",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 7,
+        "min_length": null,
+        "pattern": "[ABCEGHJKLMNPRSTVXY]\\d[ABCEGHJ-NPRSTV-Z][ ]?\\d[ABCEGHJ-NPRSTV-Z]\\d"
+      }
+    ],
+    "phone_mask": "(000) 000-0000",
+    "phone_pattern": "^(1)?((?:[2-8]\\d|90)\\d{8}|3\\d{6})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "live",
+    "online_address_status": "live",
+    "form_evidence": "rendered_or_existing"
+  },
+  "CH": {
+    "country": "CH",
+    "locale": "de_CH",
+    "language": "de",
+    "currency": "CHF",
+    "calling_code": "+41",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 4,
+        "min_length": null,
+        "pattern": "\\d{4}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 000 00 00",
+    "phone_pattern": "^(0)?(8\\d{11}|[2-9]\\d{8})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "CL": {
+    "country": "CL",
+    "locale": "es_CL",
+    "language": "es",
+    "currency": "CLP",
+    "calling_code": "+56",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 7,
+        "min_length": null,
+        "pattern": "\\d{7}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "(0) 0000 0000",
+    "phone_pattern": "^12300\\d{6}|6\\d{9,10}|[2-9]\\d{8}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "CO": {
+    "country": "CO",
+    "locale": "es_CO",
+    "language": "es",
+    "currency": "COP",
+    "calling_code": "+57",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 6,
+        "min_length": null,
+        "pattern": "\\d{6}"
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 0000000",
+    "phone_pattern": "^(0(4(?:[14]4|56)|[579])?)?((?:60\\d\\d|9101)\\d{6}|(?:1\\d|3)\\d{9})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "CZ": {
+    "country": "CZ",
+    "locale": "cs_CZ",
+    "language": "cs",
+    "currency": "CZK",
+    "calling_code": "+420",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 6,
+        "min_length": null,
+        "pattern": "\\d{3}[ ]?\\d{2}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 000 000",
+    "phone_pattern": "^(?:[2-578]\\d|60)\\d{7}|9\\d{8,11}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "DE": {
+    "country": "DE",
+    "locale": "de_DE",
+    "language": "de",
+    "currency": "EUR",
+    "calling_code": "+49",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 5,
+        "min_length": null,
+        "pattern": "(0[1-9]|[1-9]\\d)\\d{3}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0)?([2579]\\d{5,14}|49(?:[34]0|69|8\\d)\\d\\d?|49(?:37|49|60|7[089]|9\\d)\\d{1,3}|49(?:2[024-9]|3[2-689]|7[1-7])\\d{1,8}|(?:1|[368]\\d|4[0-8])\\d{3,13}|49(?:[015]\\d|2[13]|31|[46][1-8])\\d{1,9})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "DK": {
+    "country": "DK",
+    "locale": "da_DK",
+    "language": "da",
+    "currency": "DKK",
+    "calling_code": "+45",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 4,
+        "min_length": null,
+        "pattern": "\\d{4}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "00 00 00 00",
+    "phone_pattern": "^[2-9]\\d{7}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "ES": {
+    "country": "ES",
+    "locale": "es_ES",
+    "language": "es",
+    "currency": "EUR",
+    "calling_code": "+34",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 5,
+        "min_length": null,
+        "pattern": "\\d{5}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 00 00 00",
+    "phone_pattern": "^[5-9]\\d{8}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "FI": {
+    "country": "FI",
+    "locale": "fi_FI",
+    "language": "fi",
+    "currency": "EUR",
+    "calling_code": "+358",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 5,
+        "min_length": null,
+        "pattern": "\\d{5}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0)?([1-35689]\\d{4}|7\\d{10,11}|(?:[124-7]\\d|3[0-46-9])\\d{8}|[1-9]\\d{5,8})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "FR": {
+    "country": "FR",
+    "locale": "fr_FR",
+    "language": "fr",
+    "currency": "EUR",
+    "calling_code": "+33",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 6,
+        "min_length": null,
+        "pattern": "\\d{2}[ ]?\\d{3}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "00 00 00 00 00",
+    "phone_pattern": "^(0)?([1-9]\\d{8})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "GR": {
+    "country": "GR",
+    "locale": "el_GR",
+    "language": "el",
+    "currency": "EUR",
+    "calling_code": "+30",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 6,
+        "min_length": null,
+        "pattern": "\\d{3}[ ]?\\d{2}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 000 0000",
+    "phone_pattern": "^5005000\\d{3}|8\\d{9,11}|(?:[269]\\d|70)\\d{8}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "HK": {
+    "country": "HK",
+    "locale": "en_HK",
+    "language": "en",
+    "currency": "HKD",
+    "calling_code": "+852",
+    "address_fields": [
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "0000 0000",
+    "phone_pattern": "^8[0-46-9]\\d{6,7}|9\\d{4,7}|(?:[2-7]|9\\d{3})\\d{7}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "IE": {
+    "country": "IE",
+    "locale": "en_IE",
+    "language": "en",
+    "currency": "EUR",
+    "calling_code": "+353",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 10,
+        "min_length": null,
+        "pattern": "[A-Za-z0-9 \\-]{1,10}"
+      }
+    ],
+    "phone_mask": "000 000 0000",
+    "phone_pattern": "^(0)?((?:1\\d|[2569])\\d{6,8}|4\\d{6,9}|7\\d{8}|8\\d{8,9})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "IL": {
+    "country": "IL",
+    "locale": "he_IL",
+    "language": "he",
+    "currency": "ILS",
+    "calling_code": "+972",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 7,
+        "min_length": null,
+        "pattern": "\\d{5}(\\d{2})?"
+      }
+    ],
+    "phone_mask": "000-000-0000",
+    "phone_pattern": "^(0)?(1\\d{6}(?:\\d{3,5})?|[57]\\d{8}|[1-489]\\d{7})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "IT": {
+    "country": "IT",
+    "locale": "it_IT",
+    "language": "it",
+    "currency": "EUR",
+    "calling_code": "+39",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 5,
+        "min_length": null,
+        "pattern": "\\d{5}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^0\\d{5,10}|1\\d{8,10}|3(?:[0-8]\\d{7,10}|9\\d{7,8})|(?:55|70)\\d{8}|8\\d{5}(?:\\d{2,4})?$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "KR": {
+    "country": "KR",
+    "locale": "ko_KR",
+    "language": "ko",
+    "currency": "KRW",
+    "calling_code": "+82",
+    "address_fields": [
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 5,
+        "min_length": null,
+        "pattern": "\\d{5}"
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0(8(?:[1-46-8]|5\\d\\d))?)?(00[1-9]\\d{8,11}|(?:[12]|5\\d{3})\\d{7}|[13-6]\\d{9}|(?:[1-6]\\d|80)\\d{7}|[3-6]\\d{4,5}|(?:00|7)0\\d{8})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "MY": {
+    "country": "MY",
+    "locale": "en_MY",
+    "language": "en",
+    "currency": "MYR",
+    "calling_code": "+60",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 5,
+        "min_length": null,
+        "pattern": "\\d{5}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0)?(1\\d{8,9}|(?:3\\d|[4-9])\\d{7})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "NL": {
+    "country": "NL",
+    "locale": "nl_NL",
+    "language": "nl",
+    "currency": "EUR",
+    "calling_code": "+31",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 7,
+        "min_length": null,
+        "pattern": "\\d{4}[ ]?[A-Z]{2}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0)?((?:[124-7]\\d\\d|3(?:[02-9]\\d|1[0-8]))\\d{6}|8\\d{6,9}|9\\d{6,10}|1\\d{4,5})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "NO": {
+    "country": "NO",
+    "locale": "no_NO",
+    "language": "no",
+    "currency": "NOK",
+    "calling_code": "+47",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 4,
+        "min_length": null,
+        "pattern": "\\d{4}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "00 00 00 00",
+    "phone_pattern": "^(?:0|[2-9]\\d{3})\\d{4}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "NZ": {
+    "country": "NZ",
+    "locale": "en_NZ",
+    "language": "en",
+    "currency": "NZD",
+    "calling_code": "+64",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 4,
+        "min_length": null,
+        "pattern": "\\d{4}"
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0)?([29]\\d{7,9}|50\\d{5}(?:\\d{2,3})?|6[0-35-9]\\d{6}|7\\d{7,8}|8\\d{4,9}|(?:11\\d|[34])\\d{7})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "PE": {
+    "country": "PE",
+    "locale": "es_PE",
+    "language": "es",
+    "currency": "PEN",
+    "calling_code": "+51",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 9,
+        "min_length": null,
+        "pattern": "((?:LIMA[ ]?\\d{1,2}|CALLAO[ ]?0?\\d)|[0-2]?\\d{1,4})"
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 000 000",
+    "phone_pattern": "^(0)?((?:[14-8]|9\\d)\\d{7})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "PL": {
+    "country": "PL",
+    "locale": "pl_PL",
+    "language": "pl",
+    "currency": "PLN",
+    "calling_code": "+48",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 6,
+        "min_length": null,
+        "pattern": "\\d{2}-\\d{3}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 000 000",
+    "phone_pattern": "^(?:6|8\\d\\d)\\d{7}|[1-9]\\d{6}(?:\\d{2})?|[26]\\d{5}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "PT": {
+    "country": "PT",
+    "locale": "pt_PT",
+    "language": "pt",
+    "currency": "EUR",
+    "calling_code": "+351",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 8,
+        "min_length": null,
+        "pattern": "\\d{4}([\\-]?\\d{3})?"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000 000 000",
+    "phone_pattern": "^1693\\d{5}|(?:[26-9]\\d|30)\\d{7}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "SA": {
+    "country": "SA",
+    "locale": "ar_SA",
+    "language": "ar",
+    "currency": "SAR",
+    "calling_code": "+966",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 10,
+        "min_length": null,
+        "pattern": "\\d{5}([\\-]?\\d{4})?"
+      }
+    ],
+    "phone_mask": "000 000 0000",
+    "phone_pattern": "^(0)?(92\\d{7}|(?:[15]|8\\d)\\d{8})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "SE": {
+    "country": "SE",
+    "locale": "sv_SE",
+    "language": "sv",
+    "currency": "SEK",
+    "calling_code": "+46",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 6,
+        "min_length": null,
+        "pattern": "\\d{3}[ ]?\\d{2}"
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000-000 00 00",
+    "phone_pattern": "^(0)?((?:[26]\\d\\d|9)\\d{9}|[1-9]\\d{8}|[1-689]\\d{7}|[1-4689]\\d{6}|2\\d{5})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "SG": {
+    "country": "SG",
+    "locale": "en_SG",
+    "language": "en",
+    "currency": "SGD",
+    "calling_code": "+65",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 6,
+        "min_length": null,
+        "pattern": "\\d{6}"
+      }
+    ],
+    "phone_mask": "0000 0000",
+    "phone_pattern": "^(?:(?:1\\d|8)\\d\\d|7000)\\d{7}|[3689]\\d{7}$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "TR": {
+    "country": "TR",
+    "locale": "tr_TR",
+    "language": "tr",
+    "currency": "TRY",
+    "calling_code": "+90",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": false,
+        "max_length": 5,
+        "min_length": null,
+        "pattern": "\\d{5}"
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "0000 000 00 00",
+    "phone_pattern": "^(0)?(4\\d{6}|8\\d{11,12}|(?:[2-58]\\d\\d|900)\\d{7})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "ZA": {
+    "country": "ZA",
+    "locale": "en_ZA",
+    "language": "en",
+    "currency": "ZAR",
+    "calling_code": "+27",
+    "address_fields": [
+      {
+        "key": "address_line_1",
+        "paypal_name": "line1",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "address_line_2",
+        "paypal_name": "line2",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "city",
+        "paypal_name": "city",
+        "required": true,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      },
+      {
+        "key": "postal_code",
+        "paypal_name": "postcode",
+        "required": true,
+        "max_length": 4,
+        "min_length": null,
+        "pattern": "\\d{4}"
+      },
+      {
+        "key": "state_or_region",
+        "paypal_name": "state",
+        "required": false,
+        "max_length": null,
+        "min_length": null,
+        "pattern": null
+      }
+    ],
+    "phone_mask": "000000000000000",
+    "phone_pattern": "^(0)?([1-79]\\d{8}|8\\d{4,9})$",
+    "source": "PayPal locale metadata discovery",
+    "implementation_status": "discovered",
+    "online_address_status": "pending",
+    "form_evidence": "locale_metadata"
+  },
+  "IN": {
+    "country": "IN",
+    "locale": "en_IN",
+    "currency": "INR",
+    "source": "paypal_runtime_metadata",
+    "address_fields": [
+      {
+        "paypal_name": "line1",
+        "label_zh": "地址第 1 行",
+        "required": true
+      },
+      {
+        "paypal_name": "line2",
+        "label_zh": "地址第 2 行",
+        "required": false
+      },
+      {
+        "paypal_name": "city",
+        "label_zh": "城市",
+        "required": true
+      },
+      {
+        "paypal_name": "state",
+        "label_zh": "邦 / 州",
+        "required": true
+      },
+      {
+        "paypal_name": "postcode",
+        "label_zh": "PIN Code",
+        "required": true,
+        "max_length": 7,
+        "pattern": "\\d{3}[ ]?\\d{3}"
+      }
+    ],
+    "phone": {
+      "calling_code": "+91",
+      "mask": "00000 00000",
+      "pattern": "^(0)?((?:000800|[2-9]\\d\\d)\\d{7}|1\\d{7,12})$"
+    },
+    "kyc_fields": [
+      {
+        "name": "date_of_birth",
+        "label_zh": "出生日期",
+        "required": true
+      },
+      {
+        "name": "nationality",
+        "label_zh": "国籍",
+        "required": true,
+        "default": "IN"
+      },
+      {
+        "name": "identity_document_type",
+        "label_zh": "证件类型",
+        "required": true,
+        "values": [
+          "NATIONAL_ID",
+          "PASSPORT_NUMBER",
+          "DRIVERS_LICENSE"
+        ]
+      },
+      {
+        "name": "identity_document_number",
+        "label_zh": "PAN / 证件号码",
+        "required": true
+      }
+    ],
+    "note_zh": "印度账户创建会进行实名与 KYC 校验，姓名、出生日期及证件资料需与本人记录一致。"
+  }
+}

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MailCom Hub</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="noise"></div>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">MC</div>
+      <div>
+        <p>LOCAL MAIL OPERATIONS</p>
+        <h1>MailCom Hub</h1>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span class="local-pill"><i></i> 仅本机访问</span>
+      <a href="/docs" target="_blank" rel="noreferrer">API 文档</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <span class="eyebrow">MAILBOX CONTROL PLANE</span>
+        <h2>一个界面管理全部 mail.com 邮箱</h2>
+        <p>密码由 Windows 当前用户加密保存。网页和 API 均不返回密码，收信全程使用只读 IMAP。</p>
+      </div>
+      <div class="hero-signal">
+        <span>IMAP ENDPOINT</span>
+        <strong>imap.mail.com : 993</strong>
+        <small>SSL · READ ONLY · BODY.PEEK</small>
+      </div>
+    </section>
+
+    <section class="stats-grid">
+      <article><span>邮箱总数</span><strong id="statTotal">0</strong><small>本机 SQLite</small></article>
+      <article><span>连接正常</span><strong id="statOnline" class="green">0</strong><small>最近测试成功</small></article>
+      <article><span>连接失败</span><strong id="statFailed" class="red">0</strong><small>需要检查密码或 IMAP</small></article>
+      <article><span>尚未测试</span><strong id="statUnknown" class="amber">0</strong><small>等待连通检查</small></article>
+      <article><span>分裂邮箱</span><strong id="statAliases" class="green">0</strong><small>独立接码 URL</small></article>
+    </section>
+
+    <section class="workspace">
+      <div class="toolbar">
+        <div class="search-wrap">
+          <span>⌕</span>
+          <input id="searchInput" type="search" placeholder="搜索邮箱地址" autocomplete="off">
+        </div>
+        <div class="toolbar-actions">
+          <button id="refreshButton" class="button ghost">刷新</button>
+          <button id="copyRegistrationButton" class="button ghost">复制注册机格式</button>
+          <button id="testAllButton" class="button secondary">测试全部</button>
+          <button id="serverSyncButton" class="button secondary">推送服务器</button>
+          <button id="bulkCreateAliasesButton" class="button secondary" hidden>一键补足未满</button>
+          <button id="importButton" class="button primary">＋ 导入邮箱</button>
+        </div>
+      </div>
+
+      <section id="bulkAliasProgress" class="bulk-progress" hidden aria-live="polite">
+        <div class="bulk-progress-head">
+          <strong id="bulkAliasTitle">正在补足分裂邮箱</strong>
+          <span id="bulkAliasSummary">0 / 0</span>
+        </div>
+        <div class="bulk-progress-track"><i id="bulkAliasBar"></i></div>
+        <div class="bulk-progress-detail">
+          <span id="bulkAliasCurrent">准备中…</span>
+          <span id="bulkAliasResult"></span>
+        </div>
+      </section>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>邮箱账号</th>
+              <th>连接状态</th>
+              <th>邮件数</th>
+              <th>分裂邮箱</th>
+              <th>最近检查</th>
+              <th>错误</th>
+              <th class="right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="accountRows"></tbody>
+        </table>
+        <div id="emptyState" class="empty-state" hidden>
+          <div>✉</div>
+          <h3>还没有邮箱</h3>
+          <p>点击“导入邮箱”，粘贴邮箱和密码即可开始。</p>
+        </div>
+      </div>
+      <footer class="table-footer">
+        <span id="resultCount">共 0 个邮箱</span>
+        <span>密码不会出现在页面、日志或 API 响应中</span>
+      </footer>
+    </section>
+  </main>
+
+  <dialog id="importDialog" class="modal import-modal">
+    <form method="dialog" class="modal-shell" id="importForm">
+      <header>
+        <div><span class="eyebrow">BULK IMPORT</span><h2>导入 mail.com 邮箱</h2></div>
+        <button id="closeImportDialog" type="button" class="icon-button" aria-label="关闭">×</button>
+      </header>
+      <div class="format-note">
+        <strong>一行一个邮箱</strong>
+        <code>邮箱----密码</code>
+        <span>重复邮箱自动跳过；密码写入前由 Windows DPAPI 加密。</span>
+      </div>
+      <textarea id="importText" rows="11" spellcheck="false" placeholder="user@gardener.com----mail-password"></textarea>
+      <div id="importResult" class="inline-result" hidden></div>
+      <footer>
+        <button id="cancelImport" type="button" class="button ghost">取消</button>
+        <button id="submitImport" type="submit" class="button primary">确认导入</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="mailDialog" class="modal mail-modal">
+    <div class="modal-shell">
+      <header>
+        <div><span class="eyebrow">INBOX READER</span><h2 id="mailTitle">邮箱邮件</h2></div>
+        <button id="closeMailDialog" class="icon-button" aria-label="关闭">×</button>
+      </header>
+      <div class="mail-toolbar">
+        <div class="folder-tabs" id="folderTabs">
+          <button data-folder="INBOX" class="active">收件箱</button>
+          <button data-folder="Spam">垃圾邮件</button>
+          <button data-folder="Junk">Junk</button>
+        </div>
+        <button id="reloadMailButton" class="button ghost small">重新读取</button>
+      </div>
+      <div id="messageList" class="message-list"></div>
+    </div>
+  </dialog>
+
+  <dialog id="aliasDialog" class="modal alias-modal">
+    <div class="modal-shell">
+      <header>
+        <div><span class="eyebrow">ALIAS MAILBOXES</span><h2 id="aliasTitle">分裂邮箱管理</h2></div>
+        <button id="closeAliasDialog" class="icon-button" aria-label="关闭">×</button>
+      </header>
+      <div class="format-note">
+        <strong>一行一个已经投递到该主邮箱的别名</strong>
+        <code>别名邮箱</code>
+        <span>也可以写成“别名邮箱----备注”。每个别名会生成独立 URL，并按收件人精确过滤，避免串码。</span>
+      </div>
+      <textarea id="aliasImportText" rows="5" spellcheck="false" placeholder="alias@example.com----用途备注"></textarea>
+      <div class="alias-import-actions">
+        <button id="autoCreateAliasesButton" class="button secondary">自动补足到 10 个</button>
+        <button id="importAliasesButton" class="button primary">导入分裂邮箱</button>
+      </div>
+      <div id="aliasList" class="alias-list"></div>
+    </div>
+  </dialog>
+
+  <dialog id="serverSyncDialog" class="modal server-sync-modal">
+    <form method="dialog" class="modal-shell" id="serverSyncForm">
+      <header>
+        <div><span class="eyebrow">SERVER SNAPSHOT</span><h2>推送邮箱更新到服务器</h2></div>
+        <button id="closeServerSyncDialog" type="button" class="icon-button" aria-label="关闭">×</button>
+      </header>
+      <div class="format-note">
+        <strong>全量幂等更新</strong>
+        <span>推送全部主邮箱、最新密码和分裂邮箱。SSH 密码仅用于本次连接，不会保存到页面、数据库或日志。</span>
+      </div>
+      <div class="server-sync-grid">
+        <label><span>服务器主机 / IP</span><input id="serverSyncHost" required maxlength="253" autocomplete="off" placeholder="服务器 IP 或域名"></label>
+        <label><span>SSH 端口</span><input id="serverSyncPort" required type="number" min="1" max="65535" value="22"></label>
+        <label><span>服务器用户名</span><input id="serverSyncUsername" required maxlength="128" autocomplete="username" value="root"></label>
+        <label><span>服务器密码</span><input id="serverSyncPassword" required type="password" autocomplete="current-password"></label>
+      </div>
+      <div id="serverSyncResult" class="inline-result" hidden></div>
+      <footer>
+        <button id="cancelServerSync" type="button" class="button ghost">取消</button>
+        <button id="submitServerSync" type="submit" class="button primary">开始推送</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

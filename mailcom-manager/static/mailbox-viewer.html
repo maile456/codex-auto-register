@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>查看邮箱</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,"Microsoft YaHei",sans-serif;background:#111418;color:#e6edf5}
+    *{box-sizing:border-box}body{margin:0;padding:20px;background:linear-gradient(145deg,#111418,#171c22)}
+    .head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.identity{min-width:0}.identity strong{display:block;font-size:15px}.identity span{display:block;overflow:hidden;margin-top:4px;color:#8c99a8;font-size:12px;text-overflow:ellipsis;white-space:nowrap}
+    button{padding:8px 13px;border:1px solid #33404d;border-radius:7px;background:#202832;color:#dce7f2;cursor:pointer}button:hover{border-color:#55b887;color:#72dca5}
+    .card{padding:18px;border:1px solid #2b3540;border-radius:10px;background:#171d24;box-shadow:0 12px 30px rgb(0 0 0 / 20%)}
+    .meta{display:grid;grid-template-columns:90px 1fr;gap:7px 12px;margin-bottom:16px;color:#a9b6c4;font-size:12px}.meta b{color:#758393;font-weight:500}.subject{margin:0 0 14px;font-size:18px;line-height:1.45}.body{margin:0;padding-top:15px;border-top:1px solid #2b3540;color:#cbd5df;font-size:13px;line-height:1.75;white-space:pre-wrap;word-break:break-word}
+    .code{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 16px;padding:12px 14px;border:1px solid #2a7150;border-radius:8px;background:#14281f}.code span{color:#62dfa0;font-size:24px;font-weight:700;letter-spacing:4px}
+    .state{padding:42px 16px;text-align:center;color:#8c99a8}.error{color:#ff7b83}.hidden{display:none}
+  </style>
+</head>
+<body>
+  <header class="head">
+    <div class="identity"><strong>最新邮件</strong><span id="email"></span></div>
+    <button id="refresh" type="button">刷新</button>
+  </header>
+  <div id="loading" class="state">正在读取邮箱…</div>
+  <div id="error" class="state error hidden"></div>
+  <article id="mail" class="card hidden">
+    <h1 id="subject" class="subject"></h1>
+    <div id="codeWrap" class="code hidden"><span id="code"></span><button id="copy" type="button">复制验证码</button></div>
+    <div class="meta"><b>发件人</b><span id="sender"></span><b>收件时间</b><span id="received"></span><b>文件夹</b><span id="folder"></span></div>
+    <p id="body" class="body"></p>
+  </article>
+  <script>
+    const byId = (id) => document.getElementById(id)
+    const email = new URLSearchParams(location.search).get('email') || ''
+    byId('email').textContent = email
+    async function load() {
+      byId('loading').classList.remove('hidden'); byId('error').classList.add('hidden'); byId('mail').classList.add('hidden')
+      try {
+        const response = await fetch(`/api/mail/latest?${new URLSearchParams({ email })}`, { cache: 'no-store' })
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.detail?.message || data.detail || `读取失败（HTTP ${response.status}）`)
+        const message = data.message || {}
+        byId('subject').textContent = data.subject || '暂无邮件'
+        byId('sender').textContent = message.sender || '—'
+        byId('received').textContent = data.receivedAt ? new Date(data.receivedAt).toLocaleString('zh-CN', { hour12: false }) : '—'
+        byId('folder').textContent = data.folder || '—'
+        byId('body').textContent = data.body || '这个邮箱暂时没有可展示的邮件正文。'
+        const code = data.verification_code || ''
+        byId('code').textContent = code
+        byId('codeWrap').classList.toggle('hidden', !code)
+        byId('mail').classList.remove('hidden')
+      } catch (error) {
+        byId('error').textContent = error instanceof Error ? error.message : '邮箱读取失败'
+        byId('error').classList.remove('hidden')
+      } finally { byId('loading').classList.add('hidden') }
+    }
+    byId('refresh').addEventListener('click', load)
+    byId('copy').addEventListener('click', async () => {
+      await navigator.clipboard.writeText(byId('code').textContent || '')
+      byId('copy').textContent = '已复制'; setTimeout(() => { byId('copy').textContent = '复制验证码' }, 1200)
+    })
+    load()
+  </script>
+</body>
+</html>

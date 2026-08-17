@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+
+# Runtime state / secrets
+.env
+
+# Local captures often contain URLs/tokens and page data
+captures/
+
+# Sidecar runtime state; catalogs under data/ remain tracked.
+data/payment_audit.jsonl
+data/protocol_metrics.json
+data/.payment_audit_hmac_key
+data/protocol_full.log
+
+# Ad-hoc archives / generated artifacts
+*.zip
