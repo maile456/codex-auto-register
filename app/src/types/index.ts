@@ -543,6 +543,8 @@ export interface PipelineItem {
   smsReceiverState?: 'idle' | 'waiting' | 'queued' | 'running' | 'retry_wait' | 'paused' | 'completed' | 'ready' | 'failed' | 'stopped'
   smsReceiverCredentialReady?: boolean
   smsReceiverPhoneVerified?: boolean
+  smsReceiverPhoneNumber?: string | null
+  smsReceiverPhoneVerifiedAt?: string | null
   smsReceiverTaskId?: string | null
   smsReceiverSubmittedAt?: string | null
   smsReceiverUpdatedAt?: string | null
@@ -571,10 +573,12 @@ export interface PipelinePaidStats {
   exported: number
   unexported: number
   mailConfirmed: number
+  smsVerified?: number
+  smsUnverified?: number
   daily: Array<{ date: string; count: number }>
 }
 
-export type PipelinePaidExportFormat = 'original' | 'password_totp' | 'sub2api' | 'codex_json'
+export type PipelinePaidExportFormat = 'original' | 'password_totp' | 'sub2api' | 'sub2api_split' | 'codex_json'
 
 export interface PipelinePaidExport {
   content: string
@@ -601,6 +605,14 @@ export interface PipelinePaidExportBatch {
   }>
   artifactCount: number
   failedFormatCount: number
+  archive?: {
+    content: string
+    contentBase64?: string | null
+    encoding: 'base64'
+    mimeType: 'application/zip'
+    filename: string
+    count: number
+  } | null
 }
 
 export type PipelinePaidExportResponse = PipelinePaidExport | PipelinePaidExportBatch
@@ -658,6 +670,7 @@ export interface SmsReceiverBatchResult {
   requested: number
   processed: number
   submitted?: number
+  queued?: number
   skipped?: number
   ready?: number
   failed: number

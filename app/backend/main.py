@@ -59,6 +59,7 @@ from .pipeline_service import (
     PipelineServiceError,
     PipelineSettingsUpdate,
     SmsReceiverBatchInput,
+    SmsReceiverRetryInput,
     SmsReceiverHeroSmsSettingsUpdate,
     SmsReceiverSettingsUpdate,
 )
@@ -370,6 +371,11 @@ def create_app(
             alias="settlementState",
             pattern="^(all|waiting|confirmed|review|failed)$",
         ),
+        receiver_state: str = Query(
+            default="all",
+            alias="receiverState",
+            pattern="^(all|verified|unverified|failed|pending)$",
+        ),
     ) -> dict:
         return await request.app.state.account_pipeline.list_items(
             page=page,
@@ -378,6 +384,7 @@ def create_app(
             query=q,
             export_state=export_state,
             settlement_state=settlement_state,
+            receiver_state=receiver_state,
         )
 
     @app.get("/api/pipeline/{item_id}/logs")
@@ -457,6 +464,13 @@ def create_app(
         request: Request,
     ) -> dict:
         return await request.app.state.account_pipeline.refresh_sms_receiver_status(payload)
+
+    @app.post("/api/pipeline/paid/sms-receiver/retry")
+    async def retry_paid_sms_receiver(
+        payload: SmsReceiverRetryInput,
+        request: Request,
+    ) -> dict:
+        return await request.app.state.account_pipeline.queue_sms_receiver_retry(payload)
 
     @app.post("/api/pipeline/sync")
     async def sync_pipeline(request: Request) -> dict:

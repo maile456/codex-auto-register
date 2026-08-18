@@ -168,8 +168,9 @@ function paymentLinkIsExpired(item: PipelineItem) {
 }
 
 function canManualReextract(item: PipelineItem) {
+  const stalePaymentStage = ['paying', 'payment_waiting_otp', 'payment_waiting_manual'].includes(item.stage)
   return item.stage === 'payment_failed'
-    || (item.stage === 'payment_ready' && paymentLinkIsExpired(item))
+    || ((item.stage === 'payment_ready' || stalePaymentStage) && paymentLinkIsExpired(item))
 }
 
 async function openLogs(item: PipelineItem) {

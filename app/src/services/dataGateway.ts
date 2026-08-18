@@ -128,12 +128,13 @@ export const dataGateway = {
     return parseResponse(await fetch('/api/herosms/countries'))
   },
 
-  async listPipeline(input: { page: number; pageSize: number; stage?: string; q?: string; exportState?: 'all' | 'exported' | 'unexported'; settlementState?: 'all' | 'waiting' | 'confirmed' | 'review' | 'failed' }): Promise<PipelineList> {
+  async listPipeline(input: { page: number; pageSize: number; stage?: string; q?: string; exportState?: 'all' | 'exported' | 'unexported'; settlementState?: 'all' | 'waiting' | 'confirmed' | 'review' | 'failed'; receiverState?: 'all' | 'verified' | 'unverified' | 'failed' | 'pending' }): Promise<PipelineList> {
     const params = new URLSearchParams({ page: String(input.page), pageSize: String(input.pageSize) })
     if (input.stage) params.set('stage', input.stage)
     if (input.q?.trim()) params.set('q', input.q.trim())
     if (input.exportState && input.exportState !== 'all') params.set('exportState', input.exportState)
     if (input.settlementState && input.settlementState !== 'all') params.set('settlementState', input.settlementState)
+    if (input.receiverState && input.receiverState !== 'all') params.set('receiverState', input.receiverState)
     return parseResponse(await fetch(`/api/pipeline?${params}`, {
       headers: paymentExtractorHeaders(),
     }))
@@ -156,9 +157,10 @@ export const dataGateway = {
     query = '',
     exportState: 'all' | 'exported' | 'unexported' = 'all',
     format: PipelinePaidExportFormat | PipelinePaidExportFormat[] = 'original',
+    packaging: 'separate' | 'zip' = 'separate',
   ): Promise<PipelinePaidExportResponse> {
     const body = Array.isArray(format)
-      ? { ids, query, exportState, formats: format }
+      ? { ids, query, exportState, formats: format, packaging }
       : format === 'original'
       ? { ids, query, exportState }
       : { ids, query, exportState, format }
@@ -236,6 +238,14 @@ export const dataGateway = {
 
   async refreshSmsReceiverStatus(ids: string[]): Promise<SmsReceiverBatchResult> {
     return parseResponse(await fetch('/api/pipeline/paid/sms-receiver/status', {
+      method: 'POST',
+      headers: paymentExtractorHeaders(true),
+      body: JSON.stringify({ ids }),
+    }))
+  },
+
+  async retryPaidSmsReceiver(ids: string[]): Promise<SmsReceiverBatchResult> {
+    return parseResponse(await fetch('/api/pipeline/paid/sms-receiver/retry', {
       method: 'POST',
       headers: paymentExtractorHeaders(true),
       body: JSON.stringify({ ids }),

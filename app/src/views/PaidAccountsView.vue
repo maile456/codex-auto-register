@@ -38,14 +38,17 @@ const deleteLoading = ref(false)
 const receiverSaving = ref(false)
 const receiverTesting = ref(false)
 const receiverActionLoading = ref(false)
+const receiverRetryLoading = ref(false)
 const receiverConfigVisible = ref(false)
 const exportFormats = ref<PipelinePaidExportFormat[]>(['original'])
 const exportFormatOptions: Array<{ label: string; value: PipelinePaidExportFormat; description: string }> = [
   { label: '原格式', value: 'original', description: '邮箱与接码 URL' },
   { label: '密码+2FA', value: 'password_totp', description: '邮箱----密码----2FA' },
-  { label: 'Sub2', value: 'sub2api', description: 'Sub2 API 格式' },
+  { label: 'Sub2 合并', value: 'sub2api', description: 'Sub2 合并 JSON' },
+  { label: 'Sub2 分开 ZIP', value: 'sub2api_split', description: '每个账号一个 Sub2 JSON' },
   { label: 'Codex JSON', value: 'codex_json', description: 'Codex OAuth JSON' },
 ]
+const exportPackaging = ref<'separate' | 'zip'>('separate')
 const exportFormatSummary = computed(() => exportFormatOptions
   .filter((option) => exportFormats.value.includes(option.value))
   .map((option) => option.description)
@@ -96,11 +99,20 @@ const pageSize = ref(20)
 const search = ref('')
 const exportState = ref<'all' | 'exported' | 'unexported'>('all')
 const settlementState = ref<'all' | 'waiting' | 'confirmed' | 'review' | 'failed'>('all')
+const receiverState = ref<'all' | 'verified' | 'unverified' | 'failed' | 'pending'>('all')
 const selectedIds = ref<string[]>([])
 const selectedReceiverIds = computed(() => {
   const selected = new Set(selectedIds.value)
   return items.value
     .filter((item) => selected.has(item.id) && receiverEligible(item))
+    .map((item) => item.id)
+})
+const selectedReceiverRetryIds = computed(() => {
+  const selected = new Set(selectedIds.value)
+  return items.value
+    .filter((item) => selected.has(item.id)
+      && receiverEligible(item)
+      && ['failed', 'stopped'].includes(item.smsReceiverState || ''))
     .map((item) => item.id)
 })
 const selectionAnchorId = ref<string | null>(null)
@@ -116,6 +128,8 @@ const stats = ref<PipelinePaidStats>({
   exported: 0,
   unexported: 0,
   mailConfirmed: 0,
+  smsVerified: 0,
+  smsUnverified: 0,
   daily: [],
 })
 let pollTimer: ReturnType<typeof setInterval> | undefined
@@ -139,6 +153,7 @@ async function loadData(quiet = false) {
         q: search.value,
         exportState: exportState.value,
         settlementState: settlementState.value,
+        receiverState: receiverState.value,
       }),
       dataGateway.paidPipelineStats(14),
     ])
@@ -333,6 +348,11 @@ function checkoutTypeLabel(item: PipelineItem) {
 }
 
 function receiverStatusLabel(item: PipelineItem) {
+  if (item.smsReceiverPhoneVerified || item.smsReceiverCredentialReady) {
+    return item.smsReceiverPhoneNumber
+      ? `已接码 ${item.smsReceiverPhoneNumber}`
+      : item.smsReceiverCredentialReady ? '已接码（凭证已就绪）' : '手机号已接码'
+  }
   const labels: Record<string, string> = {
     idle: '未送出', waiting: '等待接码机空闲', queued: '已排队', running: '接码中', retry_wait: '等待重试',
     paused: '已暂停', completed: '归档中', ready: '凭证已就绪', failed: '送出失败', stopped: '已停止',
@@ -341,7 +361,7 @@ function receiverStatusLabel(item: PipelineItem) {
 }
 
 function receiverStatusType(item: PipelineItem) {
-  if (item.smsReceiverState === 'ready' && item.smsReceiverCredentialReady) return 'success'
+  if (item.smsReceiverPhoneVerified || item.smsReceiverCredentialReady) return 'success'
   if (item.smsReceiverState === 'failed' || item.smsReceiverState === 'stopped') return 'danger'
   if (item.smsReceiverState && item.smsReceiverState !== 'idle') return 'warning'
   return 'info'
@@ -546,6 +566,23 @@ async function refreshReceiver(ids = selectedIds.value) {
   }
 }
 
+async function retryReceiver(ids = selectedReceiverRetryIds.value) {
+  if (!ids.length) return
+  const previousSelection = [...selectedIds.value]
+  receiverRetryLoading.value = true
+  try {
+    const result = await dataGateway.retryPaidSmsReceiver(ids)
+    if (result.queued) ElMessage.success(`已将 ${result.queued} 个失败任务加入接码队列`)
+    if (result.skipped) ElMessage.warning(`${result.skipped} 个账号资料不完整或已经接码`)
+    await loadData(true)
+    await restoreSelection(previousSelection)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '接码重试入队失败')
+  } finally {
+    receiverRetryLoading.value = false
+  }
+}
+
 function toggleExportFormat(format: PipelinePaidExportFormat) {
   if (exportFormats.value.includes(format)) {
     if (exportFormats.value.length === 1) {
@@ -565,6 +602,7 @@ function exportEmptyMessage(format: PipelinePaidExportFormat) {
     original: '没有包含接码 URL 的成品账号',
     password_totp: '没有同时包含密码和 2FA 的成品账号',
     sub2api: '没有可导出的 Sub2 凭证',
+    sub2api_split: '没有可导出的 Sub2 凭证',
     codex_json: '没有可导出的 Codex OAuth 凭证',
   }
   return messages[format]
@@ -612,18 +650,36 @@ async function exportRecords(delivery: 'copy' | 'download', selected: boolean) {
     let exportedCount = 0
     let response: Awaited<ReturnType<typeof dataGateway.exportPaidPipeline>>
     try {
-      response = await dataGateway.exportPaidPipeline(
+      const exportArgs = [
         selected ? selectedIds.value : [],
         search.value,
         exportState.value,
         requestedFormats.length === 1 ? requestedFormats[0]! : requestedFormats,
-      )
+      ] as const
+      response = requestedFormats.length > 1
+        ? await dataGateway.exportPaidPipeline(...exportArgs, exportPackaging.value)
+        : await dataGateway.exportPaidPipeline(...exportArgs)
     } catch (error) {
       ElMessage.error(`导出失败：${error instanceof Error ? error.message : '未知错误'}`)
       return
     }
 
     const results = isExportBatch(response) ? response.exports : [response]
+    if (delivery === 'download' && isExportBatch(response) && response.archive) {
+      downloadEncodedFile(
+        response.archive.contentBase64 || response.archive.content,
+        response.archive.filename,
+        response.archive.mimeType,
+        response.archive.encoding,
+      )
+      response.exports.forEach((result) => {
+        exportedCount += result.count
+        showExportSkipMessages(result, result.format, true)
+      })
+      ElMessage.success(`已生成合并压缩包，包含 ${response.exports.length} 种格式`)
+      if (exportedCount) await loadData()
+      return
+    }
     const resultByFormat = new Map(results.map((result) => [result.format, result]))
     if (isExportBatch(response)) {
       response.errors.forEach((error) => {
@@ -778,6 +834,7 @@ onBeforeUnmount(() => {
       <StatCard label="今日入库" :value="stats.today" note="日本自然日" :icon="CreditCard" />
       <StatCard label="未导出" :value="stats.unexported" note="等待交付账号" :icon="Download" tone="amber" />
       <StatCard label="邮件已确认" :value="stats.mailConfirmed" note="已匹配到账确认邮件" :icon="Message" tone="green" />
+      <StatCard label="已接码" :value="stats.smsVerified || 0" note="手机号已验证或接码凭证已就绪" :icon="Message" tone="green" />
     </div>
 
     <div class="panel operation-panel">
@@ -823,6 +880,10 @@ onBeforeUnmount(() => {
             @click="toggleExportFormat(option.value)"
           >{{ option.label }}</el-button>
         </div>
+        <el-select v-if="exportFormats.length > 1" v-model="exportPackaging" class="export-packaging" aria-label="多格式导出方式">
+          <el-option label="分别下载" value="separate" />
+          <el-option label="合并为压缩包" value="zip" />
+        </el-select>
         <el-button
           :icon="CopyDocument"
           :loading="exportLoading"
@@ -869,6 +930,13 @@ onBeforeUnmount(() => {
           <el-option label="到账待复核" value="review" />
           <el-option label="邮箱检查异常" value="failed" />
         </el-select>
+        <el-select v-model="receiverState" class="receiver-filter" aria-label="接码状态" @change="submitSearch">
+          <el-option label="全部接码状态" value="all" />
+          <el-option label="已接码" value="verified" />
+          <el-option label="未接码" value="unverified" />
+          <el-option label="接码中/排队" value="pending" />
+          <el-option label="接码失败" value="failed" />
+        </el-select>
       </div>
       <div class="selection-toolbar">
         <el-tag class="selection-count" :type="selectedIds.length ? 'primary' : 'info'" effect="plain">
@@ -881,6 +949,7 @@ onBeforeUnmount(() => {
         <el-button size="small" @click="quickSelect()">本页</el-button>
         <span class="shift-selection-hint">先选一行，再按住 Shift 点击另一行，可连续选择整段</span>
         <el-button size="small" :disabled="!selectedIds.length" :loading="mailLoading" :icon="Refresh" @click="checkMail()">重新检查到账</el-button>
+        <el-button size="small" type="warning" :disabled="!selectedReceiverRetryIds.length || !receiverSettings.enabled" :loading="receiverRetryLoading" :icon="Refresh" @click="retryReceiver()">失败重试入队 {{ selectedReceiverRetryIds.length || '' }}</el-button>
         <el-button size="small" :disabled="!selectedIds.length" :loading="markingLoading" :icon="Select" @click="markExported(true)">标记已导出</el-button>
         <el-button size="small" :disabled="!selectedIds.length" :loading="markingLoading" @click="markExported(false)">恢复未导出</el-button>
         <el-button size="small" type="danger" :disabled="!selectedIds.length" :loading="deleteLoading" :icon="Delete" @click="deleteSelected">删除选中</el-button>
@@ -931,6 +1000,7 @@ onBeforeUnmount(() => {
               <span v-if="row.mailConfirmationOrderId" class="truncate" :title="row.mailConfirmationOrderId">订单 {{ row.mailConfirmationOrderId }}</span>
               <span v-if="row.mailConfirmationError" class="error-text">{{ row.mailConfirmationError }}</span>
               <span v-if="row.smsReceiverPhoneVerified">手机号已验证</span>
+              <span v-if="row.smsReceiverPhoneNumber">手机号 {{ row.smsReceiverPhoneNumber }}</span>
               <span v-if="row.smsReceiverCredentialReady">OAuth 凭证已归档</span>
               <span v-if="row.smsReceiverError" class="error-text">{{ row.smsReceiverError }}</span>
               <span v-if="row.mailConfirmationAttempt">已检查 {{ row.mailConfirmationAttempt }} 次</span>
@@ -977,6 +1047,9 @@ onBeforeUnmount(() => {
               </el-tooltip>
               <el-tooltip :content="receiverEligible(row) ? '启动 HeroSMS 接码' : '需要邮箱、密码和 2FA'">
                 <el-button text type="primary" :icon="Select" :disabled="!receiverSettings.enabled || !receiverEligible(row)" aria-label="HeroSMS 接码" @click="submitToReceiver([row.id])" />
+              </el-tooltip>
+              <el-tooltip v-if="['failed', 'stopped'].includes(row.smsReceiverState || '')" content="加入接码重试队列">
+                <el-button text type="warning" :icon="Refresh" :disabled="!receiverEligible(row) || !receiverSettings.enabled" aria-label="加入接码重试队列" @click="retryReceiver([row.id])" />
               </el-tooltip>
               <el-tooltip content="从成品管理删除">
                 <el-button text type="danger" :icon="Delete" aria-label="删除成品" :loading="deleteLoading" @click="deleteOne(row)" />

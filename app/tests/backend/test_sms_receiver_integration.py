@@ -14,6 +14,7 @@ from backend.pipeline_service import (
     PipelinePaidExportInput,
     PipelineServiceError,
     SmsReceiverBatchInput,
+    SmsReceiverRetryInput,
     SmsReceiverHeroSmsSettingsUpdate,
     SmsReceiverSettingsUpdate,
 )
@@ -579,6 +580,58 @@ def test_paid_receiver_submit_retries_transient_failures_with_saved_policy(
     assert result["submitted"] == 1
     assert result["failed"] == 0
     assert items.documents["paid-retry"]["smsReceiverRetryCount"] == 1
+
+
+def test_failed_receiver_jobs_are_persisted_in_retry_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, items = _service_with_receiver(
+        [
+            {
+                "_id": "paid-failed-1",
+                "accountId": "account-failed-1",
+                "email": "failed-1@example.test",
+                "stage": "paid",
+                "smsReceiverState": "failed",
+            },
+            {
+                "_id": "paid-failed-2",
+                "accountId": "account-failed-2",
+                "email": "failed-2@example.test",
+                "stage": "paid",
+                "smsReceiverState": "stopped",
+            },
+        ],
+        [
+            {
+                "_id": "account-failed-1",
+                "email": "failed-1@example.test",
+                "chatgptPassword": "Password!Failed1",
+                "totpSecret": "JBSWY3DPEHPK3PXP",
+            },
+            {
+                "_id": "account-failed-2",
+                "email": "failed-2@example.test",
+                "chatgptPassword": "Password!Failed2",
+                "totpSecret": "JBSWY3DPEHPK3PXP",
+            },
+        ],
+    )
+
+    async def no_op(_item_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(service, "_auto_submit_paid_to_sms_receiver", no_op)
+    result = asyncio.run(
+        service.queue_sms_receiver_retry(
+            SmsReceiverRetryInput(ids=["paid-failed-1", "paid-failed-2"])
+        )
+    )
+
+    assert result["queued"] == 2
+    assert result["skipped"] == 0
+    assert items.documents["paid-failed-1"]["smsReceiverState"] == "waiting"
+    assert items.documents["paid-failed-2"]["smsReceiverState"] == "waiting"
 
 
 def test_paid_receiver_submit_respects_configured_concurrency(

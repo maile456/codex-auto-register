@@ -56,6 +56,10 @@ class MemoryCollection:
                 if not any(cls._matches(item, branch) for branch in expected):
                     return False
                 continue
+            if field == "$nor":
+                if any(cls._matches(item, branch) for branch in expected):
+                    return False
+                continue
             actual = item.get(field)
             if not isinstance(expected, dict):
                 if actual != expected:
@@ -644,6 +648,44 @@ def test_pipeline_marks_expired_paypal_link_for_manual_reextract() -> None:
     asyncio.run(exercise())
 
 
+def test_pipeline_manual_reextract_cancels_inflight_payment_and_sms() -> None:
+    async def exercise() -> None:
+        service, items, _ = pipeline_service(
+            eligible_account(),
+            eligible_item(
+                stage="payment_waiting_otp",
+                extractionStatus="succeeded",
+                paymentStatus="awaiting_otp",
+                extractedAt=datetime.now(timezone.utc) - timedelta(minutes=16),
+                paymentLink="https://www.paypal.com/agreements/approve?ba_token=BA-FIXTURE",
+                paymentJobId="job-1",
+                paymentDeviceId="device-1",
+                heroSmsActivationId="activation-1",
+                heroSmsStatus="cancel_retry",
+            ),
+        )
+        hero = FakeHeroSms()
+        service.hero_sms = hero  # type: ignore[assignment]
+        requests: list[tuple[str, str, str]] = []
+
+        async def protocol(method: str, path: str, device: str, _payload: dict[str, Any] | None = None) -> dict[str, Any]:
+            requests.append((method, path, device))
+            return {"ok": True}
+
+        service._protocol_request = protocol  # type: ignore[method-assign]
+
+        result = await service.reset_stage("pipeline-1", "extraction")
+
+        assert requests == [("POST", "/api/jobs/job-1/cancel", "device-1")]
+        assert hero.cancelled == ["activation-1"]
+        assert result["stage"] == "eligible"
+        assert items.documents["pipeline-1"]["paymentJobId"] is None
+        assert items.documents["pipeline-1"]["heroSmsActivationId"] is None
+        assert items.documents["pipeline-1"]["logs"][-1]["event"] == "extraction.retry_manual"
+
+    asyncio.run(exercise())
+
+
 def test_pipeline_account_logs_include_legacy_failure_with_redaction() -> None:
     async def exercise() -> None:
         now = datetime.now(timezone.utc)
@@ -746,6 +788,28 @@ def test_pipeline_list_filters_paid_settlement_state() -> None:
         assert len(confirmed["items"]) == 1
         assert waiting["total"] == 0
         assert waiting["items"] == []
+
+    asyncio.run(exercise())
+
+
+def test_paid_receiver_credential_counts_as_verified() -> None:
+    async def exercise() -> None:
+        service, items, _ = pipeline_service(
+            eligible_account(),
+            eligible_item(
+                stage="paid",
+                smsReceiverCredentialReady=True,
+                smsReceiverPhoneVerified=False,
+            ),
+        )
+        verified = await service.list_items(stage="paid", receiver_state="verified")
+        unverified = await service.list_items(stage="paid", receiver_state="unverified")
+        stats = await service.paid_stats()
+
+        assert verified["total"] == 1
+        assert unverified["total"] == 0
+        assert stats["smsVerified"] == 1
+        assert stats["smsUnverified"] == 0
 
     asyncio.run(exercise())
 
@@ -1296,7 +1360,8 @@ def test_pipeline_api_exposes_management_actions(tmp_path: Path) -> None:
             "page_size": 20,
             "stage": "paid",
             "query": "fixture",
-            "export_state": "all",
-            "settlement_state": "confirmed",
+                "export_state": "all",
+                "settlement_state": "confirmed",
+                "receiver_state": "all",
         },
     ) in service.calls

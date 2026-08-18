@@ -206,6 +206,38 @@ describe('PipelineView', () => {
     wrapper.unmount()
   })
 
+  it('offers a manual re-extract action for an expired link in payment', async () => {
+    vi.mocked(dataGateway.listPipeline).mockResolvedValue({
+      items: [item({
+        stage: 'payment_waiting_otp',
+        extractionStatus: 'succeeded',
+        paymentStatus: 'awaiting_otp',
+        paymentLink: 'https://checkout.example.test/pay/expired',
+        paymentLinkConfigured: true,
+        paymentLinkExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+        paymentLinkExpired: true,
+      })],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+      counts: { payment_waiting_otp: 1 },
+    })
+    const wrapper = mount(PipelineView, {
+      attachTo: document.body,
+      global: { plugins: [ElementPlus, router] },
+    })
+    await flushPromises()
+
+    const reextractButton = wrapper.findAll('button').find((button) => button.text() === '重新提炼')
+    expect(reextractButton).toBeDefined()
+    await reextractButton!.trigger('click')
+    await flushPromises()
+
+    expect(dataGateway.retryPipeline).toHaveBeenCalledWith('pipeline-1', 'extraction')
+    expect(dataGateway.extractPipeline).toHaveBeenCalledWith(['pipeline-1'])
+    wrapper.unmount()
+  })
+
   it('shows the remaining lifetime for a fresh PayPal link', async () => {
     vi.mocked(dataGateway.listPipeline).mockResolvedValue({
       items: [item({

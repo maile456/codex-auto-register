@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import io
 import re
 import uuid
+import zipfile
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 from urllib.parse import unquote, urlsplit, urlunsplit
@@ -121,6 +123,7 @@ PipelinePaidExportFormat = Literal[
     "original",
     "password_totp",
     "sub2api",
+    "sub2api_split",
     "codex_json",
 ]
 
@@ -133,8 +136,9 @@ class PipelinePaidExportInput(PipelineModel):
     formats: list[PipelinePaidExportFormat] | None = Field(
         default=None,
         min_length=1,
-        max_length=4,
+        max_length=5,
     )
+    packaging: Literal["separate", "zip"] = "separate"
 
     @field_validator("query")
     @classmethod
@@ -213,6 +217,10 @@ class SmsReceiverHeroSmsSettingsUpdate(PipelineModel):
 
 class SmsReceiverBatchInput(PipelineModel):
     ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class SmsReceiverRetryInput(PipelineModel):
+    ids: list[str] = Field(min_length=1, max_length=10_000)
 
 
 class PipelinePaymentInput(PipelineModel):
@@ -959,6 +967,14 @@ class AccountPipelineService:
                         "smsReceiverState": str(account_status.get("state") or "queued"),
                         "smsReceiverCredentialReady": bool(account_status.get("credential_ready")),
                         "smsReceiverPhoneVerified": bool(account_status.get("phone_verified")),
+                        "smsReceiverPhoneNumber": str(
+                            account_status.get("phone_number")
+                            or account_status.get("phoneNumber")
+                            or ""
+                        )
+                        or None,
+                        "smsReceiverPhoneVerifiedAt": account_status.get("phone_verified_at")
+                        or account_status.get("phoneVerifiedAt"),
                         "smsReceiverTaskId": str(task.get("id") or "") or None,
                         "smsReceiverSubmittedAt": now,
                         "smsReceiverUpdatedAt": now,
@@ -1045,6 +1061,14 @@ class AccountPipelineService:
                         "smsReceiverState": state,
                         "smsReceiverCredentialReady": bool(account_status.get("credential_ready")),
                         "smsReceiverPhoneVerified": bool(account_status.get("phone_verified")),
+                        "smsReceiverPhoneNumber": str(
+                            account_status.get("phone_number")
+                            or account_status.get("phoneNumber")
+                            or ""
+                        )
+                        or None,
+                        "smsReceiverPhoneVerifiedAt": account_status.get("phone_verified_at")
+                        or account_status.get("phoneVerifiedAt"),
                         "smsReceiverTaskId": str(task.get("id") or "") or None,
                         "smsReceiverUpdatedAt": now,
                         "smsReceiverError": None,
@@ -1073,6 +1097,81 @@ class AccountPipelineService:
             "ready": sum(item.get("state") == "ready" for item in results),
             "failed": sum(not bool(item["ok"]) for item in results),
             "items": results,
+        }
+
+    async def queue_sms_receiver_retry(
+        self, payload: SmsReceiverRetryInput
+    ) -> dict[str, Any]:
+        """Put failed/manual SMS jobs into a persistent FIFO-like waiting queue."""
+        settings = await self.sms_receiver_settings()
+        if not settings.get("enabled") or not settings.get("baseUrl"):
+            raise PipelineServiceError(
+                "sms_receiver_disabled", "请先保存并启用接码机服务器配置"
+            )
+        documents = await self._sms_receiver_documents(payload.ids)
+        now = utc_now()
+        queued: list[str] = []
+        skipped: list[str] = []
+        for item, account in documents:
+            item_id = str(item.get("_id") or "")
+            if not item_id:
+                continue
+            if item.get("smsReceiverPhoneVerified") is True or item.get(
+                "smsReceiverCredentialReady"
+            ) is True:
+                skipped.append(item_id)
+                continue
+            email = str(item.get("email") or account.get("email") or "").strip()
+            if not email or not str(account.get("chatgptPassword") or "").strip() or not str(
+                account.get("totpSecret") or ""
+            ).strip():
+                await self._guard(
+                    self.items.update_one(
+                        {"_id": item_id},
+                        {
+                            "$set": {
+                                "smsReceiverState": "failed",
+                                "smsReceiverError": "缺少邮箱、密码或 2FA，无法加入重试队列",
+                                "smsReceiverUpdatedAt": now,
+                                "updatedAt": now,
+                            }
+                        },
+                    )
+                )
+                skipped.append(item_id)
+                continue
+            await self._guard(
+                self.items.update_one(
+                    {"_id": item_id, "stage": "paid"},
+                    {
+                        "$set": {
+                            "smsReceiverState": "waiting",
+                            "smsReceiverError": "已加入接码重试队列",
+                            "smsReceiverUpdatedAt": now,
+                            "updatedAt": now,
+                        },
+                        "$inc": {"smsReceiverRetryCount": 1},
+                    },
+                )
+            )
+            queued.append(item_id)
+
+        for item_id in queued:
+            task = asyncio.create_task(
+                self._auto_submit_paid_to_sms_receiver(item_id),
+                name=f"sms-receiver-retry-{item_id[:8]}",
+            )
+            self._sms_receiver_tasks.add(task)
+            task.add_done_callback(self._sms_receiver_tasks.discard)
+        return {
+            "requested": len(payload.ids),
+            "queued": len(queued),
+            "skipped": len(skipped),
+            "failed": 0,
+            "items": [
+                *({"id": item_id, "ok": True, "state": "waiting"} for item_id in queued),
+                *({"id": item_id, "ok": False, "state": "skipped"} for item_id in skipped),
+            ],
         }
 
     async def _reconcile_sms_receiver_states(self) -> None:
@@ -1362,6 +1461,7 @@ class AccountPipelineService:
         query: str = "",
         export_state: str = "all",
         settlement_state: str = "all",
+        receiver_state: str = "all",
     ) -> dict[str, Any]:
         mongo_query: dict[str, Any] = {}
         if stage:
@@ -1384,6 +1484,39 @@ class AccountPipelineService:
                 mongo_query["mailConfirmationStatus"] = {
                     "$in": settlement_values[settlement_state]
                 }
+        if stage == "paid" and receiver_state != "all":
+            receiver_values = {
+                # A receiver credential is also a completed hand-off signal.
+                # Older records can have the credential without a phone
+                # number, so both fields belong in the 已接码 bucket.
+                "verified": {
+                    "$or": [
+                        {"smsReceiverPhoneVerified": True},
+                        {"smsReceiverCredentialReady": True},
+                    ]
+                },
+                "unverified": {
+                    "$nor": [
+                        {"smsReceiverPhoneVerified": True},
+                        {"smsReceiverCredentialReady": True},
+                    ]
+                },
+                "failed": {"smsReceiverState": {"$in": ["failed", "stopped"]}},
+                "pending": {
+                    "smsReceiverState": {
+                        "$in": ["waiting", "queued", "running", "retry_wait", "paused"]
+                    }
+                },
+            }
+            receiver_filter = receiver_values.get(receiver_state)
+            if receiver_filter:
+                if "$or" in receiver_filter and "$or" in mongo_query:
+                    mongo_query["$and"] = [
+                        {"$or": mongo_query.pop("$or")},
+                        receiver_filter,
+                    ]
+                else:
+                    mongo_query.update(receiver_filter)
         if query.strip():
             mongo_query["email"] = {"$regex": re.escape(query.strip()), "$options": "i"}
         total = await self._guard(self.items.count_documents(mongo_query))
@@ -1576,7 +1709,14 @@ class AccountPipelineService:
         first_day = now_jst.date() - timedelta(days=chart_days - 1)
         cursor = self.items.find(
             {"stage": "paid"},
-            {"paidAt": 1, "heroSmsPrice": 1, "exportCount": 1, "mailConfirmationStatus": 1},
+            {
+                "paidAt": 1,
+                "heroSmsPrice": 1,
+                "exportCount": 1,
+                "mailConfirmationStatus": 1,
+                "smsReceiverPhoneVerified": 1,
+                "smsReceiverCredentialReady": 1,
+            },
         )
         paid_items = await self._guard(cursor.to_list(length=None))
         terminal_total = await self._guard(
@@ -1606,6 +1746,11 @@ class AccountPipelineService:
         total = len(paid_items)
         exported = sum(int(item.get("exportCount") or 0) > 0 for item in paid_items)
         mail_confirmed = sum(item.get("mailConfirmationStatus") == "confirmed" for item in paid_items)
+        sms_verified = sum(
+            item.get("smsReceiverPhoneVerified") is True
+            or item.get("smsReceiverCredentialReady") is True
+            for item in paid_items
+        )
         return {
             "total": total,
             "today": today,
@@ -1617,6 +1762,8 @@ class AccountPipelineService:
             "exported": exported,
             "unexported": max(0, total - exported),
             "mailConfirmed": mail_confirmed,
+            "smsVerified": sms_verified,
+            "smsUnverified": max(0, total - sms_verified),
             "daily": [
                 {"date": day.isoformat(), "count": count}
                 for day, count in daily_counts.items()
@@ -1712,7 +1859,11 @@ class AccountPipelineService:
         default_filename = (
             "paid-accounts-sub2api.json"
             if payload.format == "sub2api"
-            else "paid-accounts-codex-json.zip"
+            else (
+                "paid-accounts-sub2api-separate.zip"
+                if payload.format == "sub2api_split"
+                else "paid-accounts-codex-json.zip"
+            )
         )
         default_mime = (
             "application/json" if payload.format == "sub2api" else "application/zip"
@@ -1922,6 +2073,43 @@ class AccountPipelineService:
             "errors": errors,
             "artifactCount": len(exports),
             "failedFormatCount": len(errors),
+            **self._paid_export_archive(exports, payload.packaging),
+        }
+
+    @staticmethod
+    def _paid_export_archive(
+        exports: list[dict[str, Any]], packaging: str
+    ) -> dict[str, Any]:
+        if packaging != "zip" or not exports:
+            return {"archive": None}
+        buffer = io.BytesIO()
+        used_names: set[str] = set()
+        with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for index, result in enumerate(exports, start=1):
+                filename = str(result.get("filename") or f"export-{index}")
+                filename = re.sub(r"[^A-Za-z0-9._-]+", "-", filename).strip(".-")
+                filename = filename or f"export-{index}"
+                if filename in used_names:
+                    filename = f"{index}-{filename}"
+                used_names.add(filename)
+                if result.get("encoding") == "base64":
+                    content = base64.b64decode(
+                        str(result.get("contentBase64") or result.get("content") or "")
+                    )
+                else:
+                    content = str(result.get("content") or "").encode("utf-8")
+                archive.writestr(filename, content)
+        timestamp = utc_now().astimezone(JST).strftime("%Y%m%d-%H%M%S")
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return {
+            "archive": {
+                "content": "",
+                "contentBase64": encoded,
+                "encoding": "base64",
+                "mimeType": "application/zip",
+                "filename": f"paid-accounts-multi-format-{timestamp}.zip",
+                "count": sum(int(item.get("count") or 0) for item in exports),
+            }
         }
 
     async def mark_paid_export_status(
@@ -2289,6 +2477,8 @@ class AccountPipelineService:
             "smsReceiverState": item.get("smsReceiverState", "idle"),
             "smsReceiverCredentialReady": bool(item.get("smsReceiverCredentialReady")),
             "smsReceiverPhoneVerified": bool(item.get("smsReceiverPhoneVerified")),
+            "smsReceiverPhoneNumber": str(item.get("smsReceiverPhoneNumber") or "") or None,
+            "smsReceiverPhoneVerifiedAt": item.get("smsReceiverPhoneVerifiedAt"),
             "smsReceiverTaskId": item.get("smsReceiverTaskId"),
             "smsReceiverSubmittedAt": item.get("smsReceiverSubmittedAt"),
             "smsReceiverUpdatedAt": item.get("smsReceiverUpdatedAt"),
@@ -3090,6 +3280,11 @@ class AccountPipelineService:
                 await self.hero_sms.cancel(activation_id)
             return True
         except HeroSmsError as exc:
+            # HeroSMS cancellation is idempotent for manual recovery.  A code
+            # submission can complete or expire the activation before the
+            # pipeline's cleanup pass reaches it.
+            if "ACTIVATION_NOT_ACTIVE" in exc.message.upper():
+                return True
             await self._guard(
                 self.items.update_one(
                     {"_id": item_id},
@@ -3102,6 +3297,27 @@ class AccountPipelineService:
                 )
             )
             return False
+
+    async def _cancel_payment_job(self, item: dict[str, Any]) -> None:
+        job_id = str(item.get("paymentJobId") or "").strip()
+        if not job_id:
+            return
+        try:
+            await self._protocol_request(
+                "POST",
+                f"/api/jobs/{job_id}/cancel",
+                str(item.get("paymentDeviceId") or ""),
+            )
+        except PipelineServiceError as exc:
+            # A job that disappeared or was already finalized needs no further
+            # cleanup; other failures must leave the record intact for retry.
+            if exc.status_code == 404:
+                return
+            raise PipelineServiceError(
+                "payment_cancel_failed",
+                "旧支付任务取消失败，请稍后重试",
+                409,
+            ) from exc
 
     async def _mark_payment_failed(self, item_id: str, code: str, message: str) -> None:
         now = utc_now()
@@ -3547,7 +3763,23 @@ class AccountPipelineService:
                 receiver_task.add_done_callback(self._sms_receiver_tasks.discard)
 
     async def reset_stage(self, item_id: str, stage: Literal["extraction", "payment"]) -> dict[str, Any]:
+        current = await self._guard(self.items.find_one({"_id": item_id}))
+        if not current:
+            raise ResourceNotFoundError("流水线记录不存在")
         if stage == "extraction":
+            await self._cancel_payment_job(current)
+            if current.get("heroSmsActivationId"):
+                released = await self._release_hero_activation(
+                    item_id,
+                    str(current.get("heroSmsActivationId") or ""),
+                    completed=False,
+                )
+                if not released:
+                    raise PipelineServiceError(
+                        "herosms_cancel_failed",
+                        "旧 HeroSMS 激活取消失败，请稍后重试",
+                        409,
+                    )
             updates = {
                 "stage": "eligible",
                 "extractionStatus": "pending",
@@ -3555,6 +3787,7 @@ class AccountPipelineService:
                 "extractionError": None,
                 "paymentStatus": "pending",
                 "paymentJobId": None,
+                "paymentDeviceId": None,
                 "paymentError": None,
                 "paymentLink": None,
                 "paymentLinkExpiresAt": None,
@@ -3566,9 +3799,19 @@ class AccountPipelineService:
                 "heroSmsError": None,
             }
         else:
-            current = await self._guard(self.items.find_one({"_id": item_id}))
-            if not current:
-                raise ResourceNotFoundError("流水线记录不存在")
+            await self._cancel_payment_job(current)
+            if current.get("heroSmsActivationId"):
+                released = await self._release_hero_activation(
+                    item_id,
+                    str(current.get("heroSmsActivationId") or ""),
+                    completed=False,
+                )
+                if not released:
+                    raise PipelineServiceError(
+                        "herosms_cancel_failed",
+                        "旧 HeroSMS 激活取消失败，请稍后重试",
+                        409,
+                    )
             if current.get("extractionStatus") != "succeeded" or not current.get("paymentLink"):
                 raise PipelineServiceError("payment_link_not_ready", "该账号尚未提链成功")
             if not self._payment_link_is_fresh(current):
